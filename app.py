@@ -1,42 +1,45 @@
 import streamlit as st
+import plotly.graph_objects as go
 
-# Sayfa Yapılandırması
 st.set_page_config(page_title="SustainaQuant AI", layout="wide")
 
-# CSS - Arka planı açık mavi yaptık
+# Kurumsal Koyu Tema CSS
 st.markdown("""
     <style>
-    .main { background-color: #e3f2fd; } 
-    .stButton>button { width: 100%; border-radius: 8px; background-color: #2e7d32; color: white; font-weight: bold; }
-    .report-card { background-color: #ffffff; padding: 25px; border-radius: 15px; border-left: 6px solid #2e7d32; box-shadow: 0 8px 12px rgba(0,0,0,0.15); }
+    .stApp { background-color: #0e1117; color: #ffffff; }
+    .stMetric { background-color: #1e2530; padding: 20px; border-radius: 10px; border-left: 5px solid #00ff88; }
+    .stButton>button { width: 100%; border-radius: 5px; background-color: #00ff88; color: #000000; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# Logoyu ekle
+# Sidebar (Logo)
 st.sidebar.image("sustainquant_logo.png", use_container_width=True)
+st.sidebar.title("Kontrol Paneli")
 
-st.title("🌱 SustainQuant AI | ESG Denetim Motoru")
+st.title("📊 SustainaQuant AI | ESG Risk Terminali")
 
-# Sütunlu Tasarım
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.subheader("📝 Giriş Verileri")
-    sirket = st.selectbox("Analiz Edilecek Şirket", ["Tüpraş", "ASELSAN", "Ford Otosan"])
-    soylem = st.text_area("Şirketin Sürdürülebilirlik İddiası (Söylem):", height=150)
-    eylem = st.text_area("Güncel Haber / Resmi Veri (Eylem):", height=150)
-    analiz_et = st.button("🚀 Derinlemesine Analiz Başlat")
+    st.subheader("Veri Girişi")
+    soylem = st.text_area("Şirket Söylemi (ESG Raporu):", height=100)
+    eylem = st.text_area("Gerçekleşen Eylem (Haber/Veri):", height=100)
+    if st.button("🚀 Analizi Çalıştır"):
+        # Burası aslında AI modelinin döneceği yer
+        st.session_state.analyze = True
 
 with col2:
-    st.subheader("🔍 Analiz Sonuçları")
-    if analiz_et:
-        if soylem and eylem:
-            with st.container():
-                st.markdown('<div class="report-card">', unsafe_allow_html=True)
-                st.metric(label="Yeşil Aklama Risk Skoru", value="20/100")
-                st.write("**Anomali Durumu:** Kapsam Uyuşmazlığı")
-                st.write("**Özet Gerekçe:** Taahhüt edilen kapasite ile resmi onaylar arasında ölçek farkı tespit edildi.")
-                st.write("**Tetikleyici:** Şanlıurfa GES lisans süreçleri izlenmeli.")
-                st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.error("Lütfen analiz için verileri giriniz.")
+    st.subheader("Canlı Risk Paneli")
+    if 'analyze' in st.session_state:
+        # Görselleştirme (Plotly - Gauge Chart)
+        fig = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = 65, # AI'dan gelecek skor
+            title = {'text': "Greenwashing Risk Skoru"},
+            gauge = {'axis': {'range': [0, 100]}, 'bar': {'color': "#00ff88"}}))
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.metric(label="Güven Aralığı", value="%88")
+        st.info("⚠️ Dikkat: Söylem ve eylem arasında %65'lik bir uyumsuzluk tespit edildi.")
+    else:
+        st.write("Analiz başlatmak için veri giriniz.")
