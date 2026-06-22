@@ -1,0 +1,167 @@
+FİNANSAL TEKNOLOJİLER YARIŞMASI
+ÖN DEĞERLENDİRME RAPORU
+
+Proje Adı: Yatırım Portföyleri İçin NLP Tabanlı ESG Risk ve "Yeşil Aklama" (Greenwashing) Tespit Motoru
+Takım Adı: SUSTAINQUANT AI
+Takım ID: 918431
+Başvuru ID: 4896395
+
+────────────────────────────────────────────────────────────────
+
+İÇİNDEKİLER
+
+1. PROJE ÖZETİ
+2. ÇÖZÜMÜN ÜRETTİĞİ SORUN/İHTİYAÇ
+3. KULLANILACAK YÖNTEM
+4. İŞ MODELİ
+5. RAKİP ANALİZİ
+6. RİSK ANALİZİ
+7. PROJE TAKVİMİ
+
+────────────────────────────────────────────────────────────────
+
+1. PROJE ÖZETİ
+
+Projenin Konusu:
+Bu proje, finansal teknolojiler (FinTech) ve yapay zeka (AI) kesişiminde yer alan; sürdürülebilir yatırımlarda giderek artan "yeşil aklama" (greenwashing) problemini tespit etmeye yönelik Doğal Dil İşleme (NLP) tabanlı otonom bir risk analitiği yazılımıdır.
+
+Projenin Amacı:
+Kurumsal yatırımcılar (fon yöneticileri, yatırım bankaları) için şirketlerin beyanları ile gerçek dünya eylemleri arasındaki tutarsızlıkları saptayan kantitatif, şeffaf ve manipüle edilemez bir "ESG Risk Skoru" üretmektir. Bu proje, yalnızca finansal kurumlar için bir analiz aracı değil, aynı zamanda toplumun sürdürülebilir yatırımlara olan güvenini artıran bir yapay zeka denetim mekanizmasıdır.
+
+Projenin Kapsamı:
+Proje, B2B kurumsal finansal aktörleri kullanıcı hedef kitlesi olarak alırken; veri analizi boyutu kurumların yüksek hacimli sürdürülebilirlik raporlarını, finansal beyanlarını ve bu beyanları doğrulamak için kullanılacak anlık bağımsız haber akışlarını kapsamaktadır. Bununla birlikte bu çözüm yalnızca kurumsal yatırımcılar için değil, dolaylı olarak bireysel yatırımcıların (BES katılımcıları, küçük tasarruf sahipleri) birikimlerini korumayı hedefler. Yeşil aklama yapan şirketlerin erken tespiti sayesinde, toplumun geniş kesimlerinin sürdürülebilir fonlara olan güveni artırılarak finansal kapsayıcılığa katkı sağlanır.
+
+Projenin Yöntemi:
+Yapısal olmayan büyük veri kümelerini anlamlandırmak için NLP teknolojileri kullanılacaktır. Sistem, metin madenciliği ve anomali tespiti algoritmaları aracılığıyla şirket raporlarındaki iddiaları otonom olarak dış kaynaklarla çapraz doğrulamaya tabi tutarak sayısal metriklere dönüştürür.
+
+────────────────────────────────────────────────────────────────
+
+2. ÇÖZÜM ÜRETTİĞİ SORUN/İHTİYAÇ
+
+Çözülmesi Planlanan Sorun:
+Trilyonlarca dolarlık hacme ulaşan küresel sürdürülebilir finansman ve ESG yatırımları pazarındaki en büyük sistematik kriz "Yeşil Aklama" (Greenwashing) problemidir. Şirketlerin çevresel etkilerini yanıltıcı beyanlarla gerçeğe aykırı şekilde olumlu göstermesi, yatırımcılar için büyük bir risk, uyum (compliance) ve güven sorunu yaratmaktadır.
+
+Mevcut Durum ve Eksiklikler:
+Şirketlerin ESG performansını ölçümleyen mevcut piyasa durumunda üç temel eksiklik bulunmaktadır:
+- Birincisi veri yüküdür; devasa raporların insan gücüyle manuel incelenmesi operasyonel açıdan yavaş ve maliyetlidir.
+- İkincisi subjektifliktir; mevcut ESG derecelendirme kuruluşlarının statik yapıları doğrudan şirketlerin "kendi beyanlarına" dayandığı için manipülasyona açıktır.
+- Üçüncüsü ise eş zamanlı analiz eksikliğidir; yılda bir yayınlanan raporlar üzerinden yapılan denetimler, anlık gelişen yasal veya çevresel krizleri skorlara anında yansıtamaz.
+
+Önerilen Çözüm, Güçlü Yönleri ve Farkı:
+Önerilen çözüm, NLP tabanlı otonom bir ESG Risk Analitik Motorudur. En güçlü yönleri; tamamen algoritmik olması sayesinde insan önyargılarından arındırılmış kantitatif bir scoring yapması, haftalar sürecek analizleri saniyelere indirerek maliyet etkinliği sağlaması ve tutarsızlıkları proaktif şekilde yakalamasıdır. Çözüm, piyasadaki geleneksel firmaların şirket beyanlarını "pasif onaylama" yaklaşımından farklı olarak; eş zamanlı çapraz doğrulama yapan "şüpheci" bir yapay zeka modeli sunmasıyla tüm mevcut alternatiflerden teknolojik olarak ayrışmaktadır. Bu problem, özellikle son yıllarda artan sürdürülebilirlik regülasyonları (örneğin AB Yeşil Mutabakatı ve SFDR) ile birlikte kritik hale gelmiştir. Şirketlerin ESG beyanlarının denetlenmesi artık yalnızca etik bir tercih değil, finansal kurumlar için zorunlu bir gereklilik haline gelmiştir. Bu nedenle, yeşil aklamayı eş zamanlı olarak tespit edebilen teknolojilere olan ihtiyaç her zamankinden daha yüksektir.
+
+────────────────────────────────────────────────────────────────
+
+3. KULLANILACAK YÖNTEM
+
+Kullanılacak Teknikler ve Metotlar:
+Çözüm, veriyi otonom toplayan ve anlamlandıran üç katmanlı bir yazılım mimarisine dayanmaktadır.
+- İlk aşamada (Data Ingestion), sürdürülebilirlik raporları ve anlık bağımsız haber akışları web kazıma (web scraping) ve API'lar ile toplanır.
+- İkinci aşamada, bu veriler finansal terminolojiye göre ince ayarı yapılmış büyük dil modelleri ile işlenerek NLP motorunda "Duygu Analizi (Sentiment Analysis)" ve "Varlık İsmi Tanıma (NER)" işlemlerine tabi tutulur.
+- Üçüncü aşamada arka uçta yüksek performanslı asenkron veri işleme için FastAPI (Python) kullanılırken, anomali bildirimleri kullanıcıların React tabanlı arayüzüne WebSocket protokolü üzerinden gecikmesiz olarak iletilir.
+
+İleri Teknoloji ve Özgün Yönü:
+Proje, mevcut teknolojileri "Söylem-Eylem Boşluğu" (Say-Do Gap) algoritması adı verilen özgün bir yöntemle uygulamaktadır. Klasik sistemler kelime eşleştirmesi yaparken; bu algoritma şirketin raporundaki iddiasını anlamsal bir vektöre dönüştürür ve dış kaynaklardan gelen bağımsız haberi de vektörel olarak analiz edip, iki veri seti arasındaki anlamsal çelişkiyi "Yeşil Aklama Anomalisi" olarak etiketler. Ayrıca sistem, Türkiye pazarına adaptasyon kapsamında Türkçe doğal dil işleme modelleri (örneğin BERTürk) ile entegre edilerek Borsa İstanbul'da işlem gören şirketlerin sürdürülebilirlik raporlarını ve KAP bildirimlerini analiz edebilecek şekilde lokalize edilecektir.
+
+Verimlilik ve Tercih Nedeni:
+Bu NLP mimarisi tercih edilmiştir çünkü geleneksel metotlarda analistlerin yüzlerce sayfalık raporu doğrulama süreci insan önyargısına maruz kalmakta ve uzun sürmektedir. Bu sistem süreci saniyelere indirerek maliyeti minimize eder ve 7/24 eş zamanlı çapraz doğrulama yaparak fon yöneticilerine yüksek verimlilikte kalkan sunar.
+
+Teknik Yaklaşımın Bilimsel Temelleri:
+Projenin bilimsel temelinde derin öğrenme mimarilerinden "Attention Mechanism" ve Transformer modelleri yatmaktadır. Metinlerin anlamsal yakınlığını veya zıtlığını ölçmek için yüksek boyutlu vektör uzaylarındaki matematiksel fonksiyonlardan yararlanılır. İddia ve gerçeklik arasındaki sapma (risk skoru), bilimsel olarak Kosinüs Benzerliği formülü ile hesaplanmaktadır; skor düştükçe şirket beyanı ile eylemi arasındaki çelişki matematiksel olarak ispatlanmış olur.
+
+────────────────────────────────────────────────────────────────
+
+4. İŞ MODELİ
+
+Pazar Büyüklüğü, Trendler ve Rekabet Ortamı:
+Bloomberg Intelligence verilerine göre küresel ESG yatırım pazarının büyüklüğünün 2030 yılına kadar 40 Trilyon Doları aşması öngörülmektedir [1]. Pazardaki en belirgin trend, şirketlerin gönüllü raporlamalarından Avrupa Birliği SFDR (Sürdürülebilir Finans Açıklama Yönetmeliği) gibi yasal regülasyonlara geçiştir. Bu durum yatırımcılar için yeşil aklama tespitini lüks olmaktan çıkarıp yasal bir zorunluluk yapmaktadır. Rekabet ortamındaki Big 4 denetim firmaları ve geleneksel derecelendirme kuruluşları, statik veri ve insan emeğine dayalı yapıları sebebiyle piyasanın anlık veri madenciliği hızına uyum sağlayamamaktadır.
+
+Hedef Kitle ve Kullanıcı Profilleri:
+Ürün doğrudan B2B modelle kurumsal finans aktörlerini (Portföy Yönetim Şirketleri, ESG Yatırım Fonları, Yatırım Bankaları) hedefler.
+
+Kullanıcı Profilleri:
+Ürün doğrudan kurumsal finansal aktörleri hedeflese de, dolaylı faydalanıcı kitlesi bireysel yatırımcılar, BES katılımcıları ve sürdürülebilir fonlara yatırım yapan geniş toplum kesimleridir.
+
+Davranış ve İhtiyaçlar:
+Yüksek hacimli veriyi hızlı yorumlaması gereken, yasal cezalardan ve itibar kaybından çekinen, kararlarını manipülasyona kapalı ve anlık verilere dayandırmak isteyen profesyonellerdir.
+
+İş Modeli ve Ticarileşme Potansiyeli:
+Projenin iş modeli tekrarlayan gelire (recurring revenue) dayalı hibrit bir kurgudur:
+
+1. Abonelik Modeli (SaaS): Kurum analistlerinin şirketleri anlık takip edip anomali alarmları kurabilecekleri web arayüzü (dashboard) için kullanıcı başına aylık/yıllık lisanslama ücretidir.
+
+2. API Entegrasyonu (DaaS): Bankaların kendi algoritmik ticaret sistemlerine doğrudan skor akışı sağlamak için "İstek Başına (Pay-as-you-go)" mikro ücretlendirme modelidir. Çözüm hedef kitlesine yalnızca bir eklenti değil, regülasyon cezalarına karşı otonom bir "ağrı kesici" sunduğu için ticarileşme potansiyeli son derece yüksektir.
+
+Maliyet Yapısı:
+Projenin başlıca maliyet kalemleri; bulut bilişim (AWS/Google Cloud), veri işleme altyapısı ve model eğitimi için gereken GPU kaynaklarıdır. Maliyet optimizasyonu amacıyla, modeller sıfırdan eğitilmek yerine fine-tuning yöntemiyle geliştirilecek ve asenkron veri işleme mimarisi ile kaynak kullanımı minimize edilecektir.
+
+────────────────────────────────────────────────────────────────
+
+5. RAKİP ANALİZİ
+
+Rakipler Hakkında Analiz ve Yenilikçi Yön:
+Birincil (ESG Ajansları) ve ikincil (Big 4) rakiplerin en büyük zafiyeti, şirketlerin sağladığı verileri insan emeğiyle ve uzun periyotlarda statik olarak onaylamalarıdır. Projenin yenilikçi yönü, şirket beyanlarını dış dünyadaki açık kaynak verilerle (haberler, davalar) eş zamanlı test eden otonom bir "Şüpheci Yapay Zeka" modeline sahip olmasıdır.
+
+Ayırt Edici Özellik:
+Projeyi piyasadaki tüm alternatiflerden ayıran en temel özellik; statik skorlama yerine "Söylem-Eylem Boşluğu" tespiti yapan, tutarsızlık arama sürecini saniyelere indiren ve insan denetimindeki önyargıları ortadan kaldıran dinamik çapraz doğrulama mimarisidir.
+
+Karşılaştırma Tablosu:
+
+Karşılaştırma Kriteri     | SUSTAINQUANT AI (Projemiz)        | Birincil Rakipler (ESG Ajansları)  | İkincil Rakipler (Big 4 Denetim)
+--------------------------+-----------------------------------+------------------------------------+---------------------------------
+Veri Kaynağı             | Otonom ve Bağımsız Big Data       | Şirket Öz Beyanları ve Anketler    | Şirket İçi Dosyalar, Mülakatlar
+Analiz Hızı              | 7/24 Eş Zamanlı (Real-Time)       | Yıllık / 6 Aylık Statik Periyotlar | Proje Bazlı ve Yavaş
+Manipülasyon Tespiti     | NLP ile Otonom Çapraz Doğrulama   | Pasif Onay (Beyan doğru kabul edilir) | İnsan denetimi ile sınırlı
+
+Bu proje, geleneksel ESG derecelendirme kuruluşları ile doğrudan rekabet etmekten ziyade, onların tespit edemediği eş zamanlı manipülasyonları yakalayarak yeni bir pazar (Blue Ocean) oluşturmaktadır. Bu yönüyle çözüm, mevcut sistemlerin tamamlayıcısı ve denetleyicisi konumundadır.
+
+────────────────────────────────────────────────────────────────
+
+6. RİSK ANALİZİ
+
+1. Veri Kirliliği ve Manipülasyon Riski:
+NLP motorunun manipülatif (fake news) haberleri doğru kabul ederek haksız "yeşil aklama" alarmları (false positive) üretmesi riskidir.
+- Önlem: Rastgele veri çekimi yapılmayacak; yalnızca güvenilirliği kanıtlanmış (whitelist) resmi kurumlar (KAP, SEC), ajanslar (Reuters) ve STK'lar kullanılacaktır. Ayrıca "çoklu kaynak teyidi" algoritması ile veriler filtrelenecektir.
+
+2. Teknolojik Risk (Yapay Zeka Halüsinasyonu):
+NLP modellerinin finansal jargonu yanlış yorumlayarak bağlamdan kopması riskidir.
+- Önlem: Genel geçer modeller yerine doğrudan ESG terminolojisiyle eğitilmiş (fine-tuned) sektörel modeller (örn. FinBERT) ve uç durumlarda nihai onayın insana bırakıldığı "Human-in-the-loop" katmanı kullanılacaktır.
+
+3. Yasal Mevzuat ve Uyum Riski:
+Web kazıma işlemlerinde veri gizliliği (KVKK/GDPR) regülasyonlarının ihlal edilmesi potansiyelidir.
+- Önlem: Yalnızca kamuya açık (public) veriler işlenecek, MVP (Minimum Viable Product) aşamasında maliyet etkinliği sağlamak amacıyla KAP (Kamuyu Aydınlatma Platformu), SEC EDGAR ve açık kaynak haber siteleri gibi ücretsiz veri kaynakları kullanılacaktır. Premium veri sağlayıcıları ile API entegrasyonları ise ürünün yatırım alması ve ölçeklenmesi (scale-up) aşamasında planlanmaktadır.
+
+────────────────────────────────────────────────────────────────
+
+7. PROJE TAKVİMİ
+
+İP 1 | Veri Hazırlığı ve Ön Araştırma
+Kapsam: Çapraz doğrulama için bağımsız küresel haber ajansları ve sürdürülebilirlik raporlarına ait veri setlerinin (Big Data) toplanması.
+Tarih: 01.04.2026 - 27.04.2026
+
+İP 2 | NLP Algoritması Tasarımı ve Eğitimi
+Kapsam: FinBERT modelinin sektörel terminoloji ile eğitilmesi ve "Söylem-Eylem Boşluğu" analiz algoritmasının matematiksel inşası.
+Tarih: 28.04.2026 - 31.05.2026
+
+İP 3 | Yazılım Geliştirme (Backend & Frontend)
+Kapsam: Yapay zeka modelinin asenkron çalışması için FastAPI entegrasyonu ve kullanıcı dashboard (React) arayüzlerinin kodlanması.
+Tarih: 01.06.2026 - 15.06.2026
+
+İP 4 | Sistem Testleri ve Optimizasyon
+Kapsam: Geliştirilen yazılım prototipinin (MVP) anomali tespitlerindeki doğruluk oranlarının test edilmesi ve olası gecikme (bug) tespitleri.
+Tarih: 16.06.2026 - 25.06.2026
+
+İP 5 | Proje Sunumu ve Demo Hazırlığı
+Kapsam: Prototipin canlı simülasyon ve ekran görüntülerinin alınarak nihai Teknofest sunum dosyasının formata uygun hazırlanması.
+Tarih: 26.06.2026 - 03.07.2026
+
+────────────────────────────────────────────────────────────────
+
+KAYNAKÇA
+
+1. Bloomberg Intelligence. (2024). Global ESG Assets Survey and Market Growth Projections. Bloomberg L.P.
+2. European Commission. (2021). Sustainable Finance Disclosure Regulation (SFDR). Official Journal of the European Union.
+3. Araci, D. (2019). FinBERT: Financial Sentiment Analysis with Pre-trained Language Models. arXiv preprint arXiv:1908.10063.
+4. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., ... & Polosukhin, I. (2017). Attention Is All You Need. Advances in Neural Information Processing Systems, 30.
+5. Delmas, M. A., & Burbano, V. C. (2011). The Drivers of Greenwashing. California Management Review, 54(1), 64-87.
+6. Boffo, R., & Patalano, R. (2020). ESG Investing: Practices, Progress and Challenges. OECD Paris.

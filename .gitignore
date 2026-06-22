@@ -1,0 +1,29 @@
+# Hugging Face model cache
+.model_cache/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases and local data caches
+sustainquant.db
+*.db
+*.sqlite
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

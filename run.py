@@ -1,0 +1,178 @@
+"""
+SustainaQuant AI – Ana Başlatıcı
+==================================
+Tek komutla tüm sistemi başlatan entry point.
+
+Kullanım:
+    python run.py init       → Veritabanı kurulumu + veri yükleme
+    python run.py api        → FastAPI sunucusu (uvicorn)
+    python run.py dashboard  → Streamlit dashboard
+    python run.py analyze    → Hızlı CLI analizi (3 şirketi tarar)
+    python run.py demo       → Teknofest demo modu (API + Dashboard bilgisi)
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Windows konsol encoding düzeltmesi
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Proje kök dizinini ekle
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+
+def cmd_init():
+    """Veritabanı kurulumu ve veri yükleme."""
+    from data.ingestion import DataIngestionPipeline
+    pipeline = DataIngestionPipeline()
+    pipeline.run_full_pipeline()
+
+
+def cmd_analyze():
+    """Tüm şirketleri hızlıca analiz eder (CLI)."""
+    print("=" * 60)
+    print("🧠 SUSTAINQUANT AI – HIZLI ANALİZ (CLI)")
+    print("=" * 60)
+    print()
+
+    from nlp.analyzer import GreenwashingAnalyzer
+    analyzer = GreenwashingAnalyzer()
+
+    print("📥 NLP modelleri yükleniyor...")
+    analyzer.nlp.warmup()
+    print()
+
+    # Tüm şirketleri analiz et
+    summary = analyzer.get_portfolio_summary()
+
+    print("=" * 60)
+    print(f"📊 PORTFÖY ÖZETİ")
+    print(f"   Toplam Şirket: {summary['total_companies']}")
+    print(f"   Ortalama Risk: {summary['avg_risk_score']:.1f}/100")
+    print(f"   Yüksek Risk: {summary['high_risk_count']} şirket")
+    print("=" * 60)
+    print()
+
+    for result in summary["results"]:
+        print(result["formatted_report"])
+        print()
+        print("-" * 60)
+        print()
+
+
+def cmd_api():
+    """FastAPI sunucusunu başlatır."""
+    import uvicorn
+    from config import API_HOST, API_PORT
+
+    print(f"🌐 API başlatılıyor: http://{API_HOST}:{API_PORT}")
+    print(f"📖 Swagger Docs: http://localhost:{API_PORT}/docs")
+    print()
+
+    uvicorn.run(
+        "api.main:app",
+        host=API_HOST,
+        port=API_PORT,
+        reload=False,
+        log_level="info",
+    )
+
+
+def cmd_dashboard():
+    """Streamlit dashboard'unu başlatır."""
+    import subprocess
+    import os
+    print("📊 Dashboard başlatılıyor...")
+    print("   URL: http://localhost:8501")
+    print()
+    
+    # Streamlit'in ilk kurulum e-posta sorusunu otomatik atlamak için
+    env = os.environ.copy()
+    env["STREAMLIT_EMAIL"] = ""
+    
+    subprocess.run([
+        sys.executable, "-m", "streamlit", "run", "app.py",
+        "--server.port", "8501",
+        "--browser.gatherUsageStats", "false",
+        "--server.headless", "true"
+    ], cwd=str(PROJECT_ROOT), env=env)
+
+
+def cmd_demo():
+    """Teknofest demo bilgilerini gösterir."""
+    from config import MASTER_SYSTEM_PROMPT
+
+    print("=" * 60)
+    print("🏆 SUSTAINQUANT AI – TEKNOFEST DEMO MODU")
+    print("=" * 60)
+    print()
+    print("📋 Proje: Yatırım Portföyleri İçin NLP Tabanlı ESG Risk")
+    print("         ve Yeşil Aklama (Greenwashing) Tespit Motoru")
+    print()
+    print("👥 Takım: SUSTAINQUANT AI | ID: 918431")
+    print("📝 Başvuru ID: 4896395")
+    print()
+    print("─" * 60)
+    print()
+    print("🔧 SİSTEMİ BAŞLATMAK İÇİN:")
+    print()
+    print("  1. Veritabanını kur:     python run.py init")
+    print("  2. Analiz yap (CLI):     python run.py analyze")
+    print("  3. API başlat:           python run.py api")
+    print("  4. Dashboard başlat:     python run.py dashboard")
+    print()
+    print("─" * 60)
+    print()
+    print("🧠 MASTER SYSTEM PROMPT:")
+    print(MASTER_SYSTEM_PROMPT)
+    print()
+    print("─" * 60)
+    print()
+    print("💼 İŞ MODELİ:")
+    print("  • B2B SaaS Abonelik:  $450/ay (Premium Dashboard)")
+    print("  • DaaS API:           $0.02/sorgu (Pay-as-you-go)")
+    print()
+    print("🎯 HEDEF KİTLE:")
+    print("  • Portföy Yönetim Şirketleri")
+    print("  • ESG Yatırım Fonları")
+    print("  • Yatırım Bankaları (Garanti BBVA vb.)")
+    print()
+    print("=" * 60)
+
+
+def main():
+    """Ana giriş noktası."""
+    if len(sys.argv) < 2:
+        print("SustainaQuant AI – Kullanım:")
+        print()
+        print("  python run.py init       Veritabanı kurulumu")
+        print("  python run.py analyze    CLI analizi")
+        print("  python run.py api        FastAPI sunucusu")
+        print("  python run.py dashboard  Streamlit dashboard")
+        print("  python run.py demo       Demo bilgileri")
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+
+    commands = {
+        "init": cmd_init,
+        "analyze": cmd_analyze,
+        "api": cmd_api,
+        "dashboard": cmd_dashboard,
+        "demo": cmd_demo,
+    }
+
+    if command in commands:
+        commands[command]()
+    else:
+        print(f"❌ Bilinmeyen komut: {command}")
+        print(f"   Geçerli komutlar: {', '.join(commands.keys())}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

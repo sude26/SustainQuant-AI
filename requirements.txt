@@ -1,3 +1,23 @@
+# SustainaQuant AI – Python Bağımlılıkları
+# Teknofest Finansal Teknolojiler Yarışması 2026
+
+# ── Mevcut (Dashboard) ──────────────────────
 streamlit
 pandas
 plotly
+
+# ── NLP & AI (Rapor §3 – Katman 2) ─────────
+transformers
+sentence-transformers
+torch
+scikit-learn
+numpy
+langdetect
+
+# ── Backend (Rapor §3 – Katman 3) ──────────
+fastapi
+uvicorn[standard]
+pydantic>=2.0
+
+# ── Yardımcı ────────────────────────────────
+rich
