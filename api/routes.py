@@ -18,9 +18,12 @@ from api.schemas import (
     CompanyAnalysisRequest, CompanyListResponse, CompanyInfo,
     PortfolioSummary, HealthResponse, HeatmapResponse, HeatmapCell,
     SimilarityDetail, SentimentDetail, AnomalyItem, ESGBreakdown,
+    LiveVerificationRequest, KAPDisclosureResponse,
+    VerificationDetail, TimelineDetail, SourceDetail,
+    AlertsResponse, AlertItem, NewsScanResponse,
 )
 from api.auth import verify_api_key, optional_api_key
-from data.esg_dataset import get_companies, get_esg_dataset
+from data.esg_dataset import get_companies, get_esg_dataset, get_company_data
 from nlp.analyzer import GreenwashingAnalyzer
 
 router = APIRouter(prefix="/api/v1", tags=["SustainaQuant AI"])
@@ -71,6 +74,15 @@ def _format_response(result: dict) -> AnalysisResponse:
         AnomalyItem(**a) for a in result.get("anomalies", [])
     ]
 
+    verification = None
+    if result.get("verification"):
+        v = result["verification"]
+        verification = VerificationDetail(
+            **{**v, "details": [SourceDetail(**d) for d in v.get("details", [])]}
+        )
+
+    timeline = TimelineDetail(**result["timeline"]) if result.get("timeline") else None
+
     return AnalysisResponse(
         company_name=result["company_name"],
         bist_code=result.get("bist_code", ""),
@@ -86,6 +98,8 @@ def _format_response(result: dict) -> AnalysisResponse:
         anomalies=anomalies,
         source=result.get("source", ""),
         analyzed_at=result.get("analyzed_at", datetime.now().isoformat()),
+        verification=verification,
+        timeline=timeline,
     )
 
 
@@ -106,6 +120,7 @@ async def analyze(request: AnalysisRequest, auth: dict = Depends(verify_api_key)
         soylem=request.soylem,
         eylem=request.eylem,
     )
+    _maybe_publish_alert(result)
     return _format_response(result)
 
 
@@ -215,3 +230,90 @@ async def health_check():
         database_ready=True,
         timestamp=datetime.now().isoformat(),
     )
+
+
+# ── Faz B: Canlı Doğrulama ──────────────────────────────────
+
+@router.get("/kap/{bist_code}/latest", response_model=KAPDisclosureResponse,
+            summary="KAP Son ESG Bildirimi",
+            description="Şirketin KAP'taki en güncel ESG bildirimini çeker.")
+async def kap_latest(bist_code: str, auth: dict = Depends(optional_api_key)):
+    from data.kap_fetcher import get_kap_fetcher
+    try:
+        result = get_kap_fetcher().fetch_latest_esg_action(bist_code.upper())
+        if not result:
+            return KAPDisclosureResponse(
+                bist_code=bist_code.upper(),
+                error="ESG bildirimi bulunamadı",
+            )
+        return KAPDisclosureResponse(
+            bist_code=result.get("bist_code", bist_code.upper()),
+            company_name=result.get("company_name", ""),
+            disclosure_index=result.get("disclosure_index"),
+            subject=result.get("subject"),
+            publish_date=result.get("publish_date"),
+            eylem_text=result.get("eylem_text", ""),
+            source_url=result.get("source_url"),
+        )
+    except Exception as exc:
+        return KAPDisclosureResponse(bist_code=bist_code.upper(), error=str(exc))
+
+
+@router.post("/verify/live", response_model=AnalysisResponse,
+             summary="Canlı KAP + Haber Doğrulama",
+             description="KAP ve RSS haber kaynaklarıyla çapraz doğrulama analizi.")
+async def verify_live(request: LiveVerificationRequest, auth: dict = Depends(optional_api_key)):
+    analyzer = get_analyzer()
+    dataset_eylem = ""
+    records = get_company_data(request.company_name) if request.use_dataset_eylem else []
+    if records:
+        dataset_eylem = records[0].get("eylem", "")
+
+    record = {
+        "sirket_adi": request.company_name,
+        "bist_kodu": request.bist_code.upper(),
+        "esg_kategorisi": request.category,
+        "soylem": request.soylem,
+        "eylem": dataset_eylem,
+        "eylem_tarihi": records[0].get("eylem_tarihi") if records else None,
+        "kaynak": "Canlı Doğrulama",
+    }
+    result = analyzer.analyze_live(
+        record,
+        include_kap=request.include_kap,
+        include_news=request.include_news,
+        soylem_tarihi=request.soylem_tarihi,
+    )
+    _maybe_publish_alert(result)
+    return _format_response(result)
+
+
+# ── Faz C: Canlı Alarmlar & Haber Tarama ────────────────────
+
+def _maybe_publish_alert(result: dict):
+    try:
+        from services.alert_bus import alert_from_analysis
+        alert_from_analysis(result)
+    except Exception:
+        pass
+
+
+@router.get("/alerts", response_model=AlertsResponse,
+            summary="Son Anomali Alarmları",
+            description="WebSocket ile de iletilen canlı alarm geçmişi.")
+async def list_alerts(limit: int = 20, auth: dict = Depends(optional_api_key)):
+    from services.alert_bus import get_recent_alerts
+    alerts = get_recent_alerts(limit)
+    return AlertsResponse(
+        total=len(alerts),
+        alerts=[AlertItem(**a) for a in alerts],
+    )
+
+
+@router.post("/alerts/scan-news", response_model=NewsScanResponse,
+             summary="Portföy Haber Taraması",
+             description="Tüm şirketler için RSS haber taraması yapar ve alarm üretir.")
+async def trigger_news_scan(auth: dict = Depends(optional_api_key)):
+    from services.news_scanner import scan_portfolio_news
+    result = scan_portfolio_news()
+    return NewsScanResponse(**result)

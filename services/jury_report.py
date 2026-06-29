@@ -23,7 +23,7 @@ def build_analysis_pdf(result: dict) -> bytes:
     sent = result.get("sentiment", {})
 
     html = f"""
-    <h1>SustainQuant AI — ESG Denetim Raporu</h1>
+    <h1>SustainQuant AI - ESG Denetim Raporu</h1>
     <p><i>Teknofest Finansal Teknolojiler 2026 · Takım ID: 918431</i></p>
     <hr>
     <h2>Şirket Bilgisi</h2>
@@ -32,7 +32,7 @@ def build_analysis_pdf(result: dict) -> bytes:
     <b>Kategori:</b> {escape(result.get('category', ''))}<br>
     <b>Tarih:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
     <h2>Yeşil Aklama Risk Skoru</h2>
-    <p style="font-size:18px"><b>{result.get('risk_score', 0):.1f} / 100</b> —
+    <p style="font-size:18px"><b>{result.get('risk_score', 0):.1f} / 100</b> -
     {escape(result.get('anomaly_status', ''))}</p>
     <h2>AI Gerekçesi</h2>
     <p>{escape(result.get('summary', ''))}</p>
@@ -73,7 +73,7 @@ def build_portfolio_pdf(summary: dict) -> bytes:
         )
 
     html = f"""
-    <h1>SustainQuant AI — Portföy Risk Özeti</h1>
+    <h1>SustainQuant AI - Portfoy Risk Ozeti</h1>
     <p>Toplam şirket: {summary.get('total_companies', 0)} |
     Ort. risk: {summary.get('avg_risk_score', 0):.1f} |
     Yüksek risk: {summary.get('high_risk_count', 0)}</p>

@@ -199,6 +199,31 @@ class GreenwashingAnalyzer:
                 "severity": "med",
             })
 
+        timeline = record.get("timeline")
+        if timeline and timeline.get("has_anomaly"):
+            anomalies.append({
+                "title": timeline.get("title", "Zaman Anomalisi"),
+                "description": timeline.get("description", ""),
+                "severity": timeline.get("severity", "med"),
+            })
+
+        verification = record.get("verification")
+        if verification and verification.get("multi_source_verified"):
+            anomalies.append({
+                "title": "Çoklu Kaynak Teyidi",
+                "description": (
+                    f"{verification['independent_count']} bağımsız kaynak doğrulandı "
+                    f"({verification['label']})."
+                ),
+                "severity": "low",
+            })
+        elif verification and verification.get("confidence") == "düşük":
+            anomalies.append({
+                "title": "Kaynak Teyidi Zayıf",
+                "description": verification.get("label", "Yetersiz kaynak"),
+                "severity": "med",
+            })
+
         return anomalies
 
     def calculate_say_do_gap(self, soylem: str, eylem: str) -> dict:
@@ -318,7 +343,33 @@ class GreenwashingAnalyzer:
             "anomalies": anomalies,
             "source": record.get("kaynak", ""),
             "analyzed_at": datetime.now().isoformat(),
+            "verification": record.get("verification"),
+            "timeline": record.get("timeline"),
+            "live_sources": record.get("sources", []),
+            "live_kap": record.get("live_kap"),
+            "live_news": record.get("live_news", []),
         }
+
+    def analyze_live(
+        self,
+        record: dict,
+        include_kap: bool = True,
+        include_news: bool = True,
+        soylem_tarihi: str | None = None,
+    ) -> dict:
+        """KAP + haber kaynaklarıyla canlı doğrulama analizi."""
+        from services.live_verification import fetch_live_context, build_enriched_record
+
+        live = fetch_live_context(
+            company_name=record["sirket_adi"],
+            bist_code=record.get("bist_kodu", ""),
+            category=record.get("esg_kategorisi", ""),
+            dataset_eylem=record.get("eylem", ""),
+            include_kap=include_kap,
+            include_news=include_news,
+        )
+        enriched = build_enriched_record(record, live, soylem_tarihi=soylem_tarihi)
+        return self.analyze_record(enriched)
 
     def analyze_company(self, company_name: str) -> list:
         """

@@ -37,7 +37,16 @@ MODEL_CACHE_DIR = BASE_DIR / ".model_cache"
 
 # NLP modu: "lightweight" = internet gerektirmez (varsayılan, hızlı)
 #            "full"        = FinBERT + Sentence Transformers (internet gerekir)
-NLP_MODE = "lightweight"
+# Ortam değişkeni: SQ_NLP_MODE=full
+NLP_MODE = os.environ.get("SQ_NLP_MODE", "lightweight")
+
+# ──────────────────────────────────────────────────────────────
+# API & BACKEND ENTEGRASYONU (Faz C)
+# ──────────────────────────────────────────────────────────────
+
+API_BASE_URL = os.environ.get("SQ_API_URL", "http://localhost:8000")
+USE_API_BACKEND = os.environ.get("SQ_USE_API", "false").lower() in ("1", "true", "yes")
+WS_ALERTS_URL = os.environ.get("SQ_WS_URL", "ws://localhost:8000/api/v1/ws/alerts")
 
 # ──────────────────────────────────────────────────────────────
 # MASTER SYSTEM PROMPT

@@ -25,3 +25,6 @@ rich
 # ── Faz A: PDF & Rapor ─────────────────────
 pypdf
 fpdf2
+
+# ── Faz B: Canlı Doğrulama ─────────────────
+httpx

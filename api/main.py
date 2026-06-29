@@ -20,6 +20,7 @@ from config import (
     CORS_ORIGINS, MASTER_SYSTEM_PROMPT,
 )
 from api.routes import router, get_analyzer
+from api.websocket import router as ws_router
 from data.ingestion import DataIngestionPipeline
 
 
@@ -81,6 +82,7 @@ app.add_middleware(
 
 # Route'ları ekle
 app.include_router(router)
+app.include_router(ws_router, prefix="/api/v1")
 
 
 # Root endpoint
@@ -94,6 +96,7 @@ async def root():
         "version": "1.0.0-mvp",
         "docs": "/docs",
         "api_base": f"/api/{API_VERSION}",
+        "websocket_alerts": "/api/v1/ws/alerts",
         "system_prompt": MASTER_SYSTEM_PROMPT[:100] + "...",
         "timestamp": datetime.now().isoformat(),
     }

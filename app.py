@@ -22,12 +22,19 @@ from config import (
     DASHBOARD_LAYOUT,
     LOGO_PATH,
     SOURCE_WHITELIST,
+    API_BASE_URL,
+    WS_ALERTS_URL,
+    USE_API_BACKEND,
 )
 NLP_MODE = getattr(sq_config, "NLP_MODE", "lightweight")
 from data.esg_dataset import get_esg_dataset, get_companies, get_company_data
 from data.pdf_extractor import extract_text_from_pdf, extract_esg_claims
 from data.demo_scenario import DEMO_SCRIPT
 from services.jury_report import build_analysis_pdf, build_portfolio_pdf
+from services.live_verification import fetch_live_context, build_enriched_record
+from services.alert_bus import get_recent_alerts
+from services.api_client import get_api_client
+from services.news_scanner import scan_portfolio_news
 from nlp.analyzer import GreenwashingAnalyzer
 
 # ──────────────────────────────────────────────────────────────
@@ -324,6 +331,275 @@ def placeholder_watchlist() -> list:
     } for c in get_companies()]
 
 
+def sync_text_inputs(ctx_key: str, soylem: str, eylem: str):
+    """Şirket/mod değişince metin alanlarını günceller (Streamlit key/value bug fix)."""
+    if st.session_state.get("_text_ctx") != ctx_key:
+        st.session_state["_text_ctx"] = ctx_key
+        st.session_state["sq_soylem"] = soylem
+        st.session_state["sq_eylem"] = eylem
+
+
+def run_company_analysis(analyzer, mode: str, record, soylem: str, eylem: str,
+                         default_company: str, default_category: str) -> dict:
+    """Analiz çalıştırır ve sonucu session state'e yazar."""
+    if mode == "Kayıtlı Şirket" and record:
+        analysis_record = {**record, "soylem": soylem, "eylem": eylem}
+        result = analyzer.analyze_record(analysis_record)
+    else:
+        result = analyzer.analyze_custom(
+            company_name=default_company,
+            category=default_category,
+            soylem=soylem,
+            eylem=eylem,
+        )
+    st.session_state["analysis_result"] = result
+    st.session_state["analysis_pending"] = False
+    try:
+        from services.alert_bus import alert_from_analysis
+        alert_from_analysis(result)
+    except Exception:
+        pass
+    return result
+
+
+def render_alerts_sidebar():
+    """Canlı anomali alarm paneli (Faz C)."""
+    st.markdown(
+        '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;'
+        'letter-spacing:.14em;color:#5C7185;margin:16px 0 8px">CANLI ALARMLAR · WS</div>',
+        unsafe_allow_html=True,
+    )
+    use_api = st.session_state.get("use_api_backend", USE_API_BACKEND)
+    alerts = []
+    if use_api:
+        try:
+            alerts = get_api_client().recent_alerts(6)
+        except Exception:
+            alerts = get_recent_alerts(6)
+    else:
+        alerts = get_recent_alerts(6)
+
+    with st.container(border=True):
+        if not alerts:
+            st.caption("Alarm yok. Analiz veya haber taraması çalıştırın.")
+        for a in alerts[:6]:
+            sev = a.get("severity", "med")
+            icon = "🔴" if sev == "high" else ("🟠" if sev == "med" else "🟢")
+            title = a.get("title", "")[:50]
+            st.markdown(f"{icon} **{title}**")
+            msg = a.get("message", "")[:70]
+            if msg:
+                st.caption(msg)
+
+    if st.button("📡  Haberleri Tara", key="btn_scan_news", use_container_width=True):
+        with st.spinner("15 şirket taranıyor…"):
+            if use_api:
+                try:
+                    r = get_api_client().scan_news()
+                    st.toast(f"{r.get('new_alerts', 0)} yeni alarm", icon="📡")
+                except Exception:
+                    r = scan_portfolio_news()
+                    st.toast(f"{r.get('new_alerts', 0)} yeni alarm (yerel)", icon="📡")
+            else:
+                r = scan_portfolio_news()
+                st.toast(f"{r.get('new_alerts', 0)} yeni alarm", icon="📡")
+        st.rerun()
+
+    st.caption(f"WS: {WS_ALERTS_URL}")
+
+
+def render_demo_score_reveal(result: dict, step: dict):
+    """Jüri sunumu için büyük risk skoru kartı."""
+    risk = result["risk_score"]
+    band = risk_to_band(risk)
+    _, band_color, _ = band_style(band)
+    ticker = result.get("bist_code") or step.get("bist_code", "")
+    render_html(f"""
+    <div style="background:linear-gradient(135deg,#0E1C2E,#16293D);border:2px solid {band_color};
+                border-radius:16px;padding:28px 32px;margin:16px 0;text-align:center">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.2em;color:#5C7185">
+        ADIM {step['step']} · {ticker}
+      </div>
+      <div style="font-size:22px;font-weight:700;color:#E8EEF4;margin:12px 0">{result['company_name']}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:56px;font-weight:700;color:{band_color};
+                  line-height:1;margin:16px 0">{risk:.0f}</div>
+      <div style="font-size:13px;color:#8AA0B4;margin-bottom:8px">YEŞİL AKLAMA RİSK SKORU / 100</div>
+      <div class="sq-band {'sq-band-high' if band=='YÜKSEK' else ('sq-band-medium' if band=='ORTA' else 'sq-band-low')}"
+           style="display:inline-flex">{band} RİSK · {result['anomaly_status']}</div>
+      <div style="font-size:13px;color:#CFE0EC;margin-top:18px;line-height:1.6">{step.get('hook','')}</div>
+    </div>
+    """)
+
+
+def render_jury_demo():
+    """Geliştirilmiş jüri sunum modu."""
+    from data.demo_scenario import DEMO_SCRIPT, DEMO_INTRO
+
+    st.markdown('<div class="sq-card-label">JÜRİ SUNUM MODU · 30 SANİYE CANLI DEMO</div>', unsafe_allow_html=True)
+
+    if "demo_step" not in st.session_state:
+        st.session_state.demo_step = 0
+    if "demo_results" not in st.session_state:
+        st.session_state.demo_results = []
+    if "demo_playing" not in st.session_state:
+        st.session_state.demo_playing = False
+
+    total_steps = len(DEMO_SCRIPT)
+    progress = st.session_state.demo_step / total_steps if total_steps else 0
+    st.progress(progress, text=f"Sunum ilerlemesi · {st.session_state.demo_step}/{total_steps} adım")
+
+    render_html(f"""
+    <div style="background:#0A1424;border:1px solid #1B2E44;border-radius:12px;padding:18px 22px;margin-bottom:20px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;color:#14E08A;margin-bottom:8px">
+        JÜRİYE SÖYLENECEK GİRİŞ
+      </div>
+      <p style="font-size:14px;line-height:1.65;color:#CFE0EC;margin:0">{DEMO_INTRO}</p>
+    </div>
+    """)
+
+    bc1, bc2, bc3 = st.columns(3)
+    with bc1:
+        if st.button("▸  SUNUMU BAŞLAT", type="primary", use_container_width=True, key="demo_start"):
+            st.session_state.demo_step = 0
+            st.session_state.demo_results = []
+            st.session_state.demo_playing = True
+            st.rerun()
+    with bc2:
+        if st.button("▸  SONRAKİ VAKA", use_container_width=True, key="demo_next",
+                     disabled=not st.session_state.demo_results):
+            if st.session_state.demo_step < total_steps:
+                st.session_state.demo_step += 1
+            st.rerun()
+    with bc3:
+        if st.button("▸  TÜM VAKALARI TARA", use_container_width=True, key="demo_all"):
+            with st.spinner("3 flagship şirket analiz ediliyor…"):
+                st.session_state.demo_results = []
+                for step in DEMO_SCRIPT:
+                    rec = next(r for r in get_esg_dataset() if r["sirket_adi"] == step["company"])
+                    st.session_state.demo_results.append(analyzer.analyze_record(rec))
+                st.session_state.demo_step = total_steps
+                st.session_state.demo_playing = False
+            st.rerun()
+
+    if st.session_state.demo_playing and st.session_state.demo_step < total_steps:
+        step = DEMO_SCRIPT[st.session_state.demo_step]
+        with st.status(f"🔍 {step['company']} analiz ediliyor…", expanded=True) as status:
+            st.write(step["narration"])
+            rec = next(r for r in get_esg_dataset() if r["sirket_adi"] == step["company"])
+            result = analyzer.analyze_record(rec)
+            st.session_state.demo_results.append(result)
+            st.session_state.demo_step += 1
+            status.update(label=f"✅ {step['company']} — Risk: {result['risk_score']:.0f}/100", state="complete")
+        st.session_state.demo_playing = st.session_state.demo_step < total_steps
+        st.rerun()
+
+    for i, step in enumerate(DEMO_SCRIPT):
+        done = i < len(st.session_state.demo_results)
+        active = i == len(st.session_state.demo_results) - 1 and st.session_state.demo_results
+        icon = "✅" if done else "⏳"
+        opacity = "1" if done or active else "0.45"
+        jury_line = step.get("jury_line", step["narration"])
+        render_html(f"""
+        <div style="background:#0E1C2E;border:1px solid {'#14E08A' if active else '#1B2E44'};
+                    border-radius:10px;padding:14px 18px;margin-bottom:10px;opacity:{opacity}">
+          <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#14E08A">
+            ADIM {step['step']}/{total_steps}</span> {icon}
+          <b style="color:#E8EEF4"> {step['title']}</b><br>
+          <span style="font-size:12px;color:#8AA0B4">{step['narration']}</span>
+          <div style="margin-top:10px;padding:10px 12px;background:#0A1424;border-radius:8px;
+                      border-left:3px solid #14E08A;font-size:12px;color:#CFE0EC;line-height:1.55">
+            🎤 <b>Jüriye söyle:</b> {jury_line}
+          </div>
+        </div>
+        """)
+
+    if st.session_state.demo_results:
+        st.markdown("---")
+        st.markdown('<div class="sq-card-label">CANLI ANALİZ SONUÇLARI</div>', unsafe_allow_html=True)
+
+        latest = st.session_state.demo_results[-1]
+        latest_step = DEMO_SCRIPT[len(st.session_state.demo_results) - 1]
+        render_demo_score_reveal(latest, latest_step)
+
+        if len(st.session_state.demo_results) == total_steps:
+            st.success("✅ Sunum tamamlandı — 3 vaka analiz edildi!")
+            scores = [r["risk_score"] for r in st.session_state.demo_results]
+            names = [r["company_name"] for r in st.session_state.demo_results]
+            fig = go.Figure(go.Bar(
+                x=names, y=scores,
+                marker_color=[risk_score_color(s) for s in scores],
+                text=[f"{s:.0f}" for s in scores],
+                textposition="outside",
+            ))
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font={"color": "#E8EEF4"}, height=280,
+                yaxis=dict(range=[0, 110], title="Risk Skoru"),
+                title="3 Vaka Karşılaştırması",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        tabs = st.tabs([
+            f"{r['company_name']} ({r['risk_score']:.0f})"
+            for r in st.session_state.demo_results
+        ])
+        for tab, result, step in zip(tabs, st.session_state.demo_results, DEMO_SCRIPT[:len(st.session_state.demo_results)]):
+            with tab:
+                render_demo_score_reveal(result, step)
+                render_analysis_results(result)
+
+
+def render_verification_panel(verification: dict):
+    """Çoklu kaynak teyit paneli."""
+    if not verification:
+        return
+    conf = verification.get("confidence", "düşük")
+    color = "#14E08A" if conf == "yüksek" else ("#FFB23E" if conf == "orta" else "#FF5C5C")
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin:16px 0 10px">ÇOKLU KAYNAK TEYİDİ</p>',
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        c1.metric("KAYNAK", verification.get("source_count", 0))
+        c2.metric("GÜVENİLİR", verification.get("trusted_count", 0))
+        c3.metric("GÜVEN", verification.get("confidence_score", 0))
+        st.markdown(
+            f'<p style="color:{color};font-weight:600;margin:8px 0 0">'
+            f'{verification.get("label", "")}</p>',
+            unsafe_allow_html=True,
+        )
+        for d in verification.get("details", []):
+            icon = "✅" if d.get("trusted") else "⚠️"
+            st.caption(f"{icon} {d.get('source', '')} · {d.get('type', '')}")
+
+
+def render_timeline_panel(timeline: dict):
+    """Zaman çizelgesi paneli."""
+    if not timeline:
+        return
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin:16px 0 10px">ZAMAN ÇİZELGESİ</p>',
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        tc1, tc2, tc3 = st.columns(3)
+        tc1.metric("SÖYLEM", timeline.get("soylem_date") or "—")
+        tc2.metric("EYLEM", timeline.get("eylem_date") or "—")
+        gap = timeline.get("gap_days")
+        tc3.metric("BOŞLUK", f"{gap} gün" if gap is not None else "—")
+        if timeline.get("title"):
+            color = "#FF5C5C" if timeline.get("has_anomaly") else "#14E08A"
+            st.markdown(
+                f'<p style="color:{color};font-weight:600;margin-top:8px">'
+                f'{timeline.get("title", "")}</p>',
+                unsafe_allow_html=True,
+            )
+            st.caption(timeline.get("description", ""))
+
+
 def render_analysis_results(result: dict):
     """B2B terminal sonuç paneli — gerçek NLP çıktısı."""
     risk_skoru = result["risk_score"]
@@ -435,6 +711,21 @@ def render_analysis_results(result: dict):
         help="Söylemin eylemden ne kadar daha iyimser olduğu (0-1). Yüksek = yeşil aklama sinyali.",
     )
     gap_col3.metric("Say-Do Risk", f"{result['risk_score']:.1f}/100")
+
+    if result.get("verification") or result.get("timeline"):
+        vcol, tcol = st.columns(2)
+        with vcol:
+            render_verification_panel(result.get("verification"))
+        with tcol:
+            render_timeline_panel(result.get("timeline"))
+
+    if result.get("live_sources"):
+        with st.expander(f"Canlı Kaynaklar ({len(result['live_sources'])})"):
+            for src in result["live_sources"]:
+                st.markdown(f"**{src.get('source', '')}** ({src.get('type', '')})")
+                if src.get("source_url"):
+                    st.caption(src["source_url"])
+                st.text((src.get("text") or "")[:400] + "...")
 
     try:
         pdf_bytes = build_analysis_pdf(result)
@@ -556,19 +847,22 @@ with st.sidebar:
     st.markdown('<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.14em;color:#5C7185;margin-bottom:8px">ANALİZ MODU</div>', unsafe_allow_html=True)
     mode = st.radio(
         "",
-        ["Kayıtlı Şirket", "Manuel Giriş", "PDF Rapor Yükle", "Portföy Tarama", "Jüri Demo"],
+        ["Kayıtlı Şirket", "Canlı Doğrulama", "Manuel Giriş", "PDF Rapor Yükle", "Portföy Tarama", "Jüri Demo"],
         label_visibility="collapsed",
     )
 
     record = None
     selected_company = None
 
-    if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle"):
+    if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle", "Canlı Doğrulama"):
         st.markdown('<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.14em;color:#5C7185;margin:16px 0 8px">ANALİZ EDİLECEK ŞİRKET</div>', unsafe_allow_html=True)
         selected_option = st.selectbox("", company_options, label_visibility="collapsed")
         selected_company = selected_option.split(" (")[0]
         if mode == "Kayıtlı Şirket":
-            record = next(r for r in get_esg_dataset() if r["sirket_adi"] == selected_company)
+            record = next((r for r in get_esg_dataset() if r["sirket_adi"] == selected_company), None)
+        elif mode == "Canlı Doğrulama":
+            records = get_company_data(selected_company)
+            record = records[0] if records else None
     elif mode not in ("Portföy Tarama", "Jüri Demo"):
         st.markdown('<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.14em;color:#5C7185;margin:16px 0 8px">ANALİZ EDİLECEK ŞİRKET</div>', unsafe_allow_html=True)
         st.selectbox("", company_options, label_visibility="collapsed", disabled=True)
@@ -576,6 +870,16 @@ with st.sidebar:
     model_status = "Çevrimiçi" if models_ready else "Hazırlanıyor"
     source_count = len(SOURCE_WHITELIST)
     mode_hint = "Lite · offline" if NLP_MODE == "lightweight" else "Full · FinBERT"
+
+    if "use_api_backend" not in st.session_state:
+        st.session_state.use_api_backend = USE_API_BACKEND
+    st.session_state.use_api_backend = st.checkbox(
+        "API Backend (FastAPI)",
+        value=st.session_state.use_api_backend,
+        help=f"Bağlantı: {API_BASE_URL} — önce: python run.py all",
+    )
+
+    render_alerts_sidebar()
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f"""
@@ -597,12 +901,13 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 
-# Şirket değişince eski analiz sonucunu temizle
-if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle") and selected_company:
+# Şirket değişince eski analiz sonucunu temizle (sadece bağlam değişince)
+if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle", "Canlı Doğrulama") and selected_company:
     current_key = f"{mode}_{selected_company}"
 else:
     current_key = mode
-if st.session_state.get("analysis_context") != current_key:
+_prev_ctx = st.session_state.get("analysis_context")
+if _prev_ctx != current_key:
     st.session_state.pop("analysis_result", None)
     st.session_state["analysis_context"] = current_key
 
@@ -655,23 +960,26 @@ if mode in ("Kayıtlı Şirket", "Manuel Giriş"):
                 default_category = st.text_input("ESG Kategorisi", placeholder="Örn: Enerji Verimliliği")
 
         st.markdown('<div class="sq-card-label">02 · SÖYLEM — şirketin sürdürülebilirlik iddiası</div>', unsafe_allow_html=True)
-        soylem_key = f"soylem_{selected_company if record else 'manual'}"
-        eylem_key = f"eylem_{selected_company if record else 'manual'}"
+        input_ctx = f"{mode}_{selected_company if record else 'manual'}"
+        sync_text_inputs(input_ctx, default_soylem, default_eylem)
 
         soylem = st.text_area(
-            "", value=default_soylem, height=130,
+            "", height=130,
             placeholder="Şirketin kamuya açık taahhüdünü yapıştırın…",
-            label_visibility="collapsed", key=soylem_key,
+            label_visibility="collapsed", key="sq_soylem",
         )
 
         st.markdown('<div class="sq-card-label" style="margin-top:16px">03 · EYLEM — güncel haber / resmi veri</div>', unsafe_allow_html=True)
         eylem = st.text_area(
-            "", value=default_eylem, height=130,
+            "", height=130,
             placeholder="KAP açıklaması, lisans verisi veya haber metnini yapıştırın…",
-            label_visibility="collapsed", key=eylem_key,
+            label_visibility="collapsed", key="sq_eylem",
         )
 
-        analiz_et = st.button("▸  DERİNLEMESİNE ANALİZ BAŞLAT", type="primary", use_container_width=True)
+        analiz_et = st.button(
+            "▸  DERİNLEMESİNE ANALİZ BAŞLAT",
+            type="primary", use_container_width=True, key="btn_deep_analyze",
+        )
 
     with col2:
         render_watchlist_panel(watchlist_items, pending=watchlist_pending)
@@ -683,24 +991,124 @@ if mode in ("Kayıtlı Şirket", "Manuel Giriş"):
             st.rerun()
 
     if analiz_et:
-        if not soylem or not eylem:
+        if not (soylem or "").strip() or not (eylem or "").strip():
             st.error("Lütfen hem söylem hem eylem alanını doldurun.")
-        elif mode == "Manuel Giriş" and not default_company:
+        elif mode == "Manuel Giriş" and not (default_company or "").strip():
             st.error("Lütfen şirket adını girin.")
+        elif mode == "Kayıtlı Şirket" and not record:
+            st.error(f"Şirket verisi bulunamadı: {selected_company}")
         else:
-            with st.spinner("Say-Do Gap analizi çalışıyor…"):
-                if mode == "Kayıtlı Şirket" and record:
-                    analysis_record = {**record, "soylem": soylem, "eylem": eylem}
-                    result = analyzer.analyze_record(analysis_record)
-                else:
-                    result = analyzer.analyze_custom(
-                        company_name=default_company,
-                        category=default_category,
-                        soylem=soylem,
-                        eylem=eylem,
+            try:
+                with st.spinner("Say-Do Gap analizi çalışıyor…"):
+                    result = run_company_analysis(
+                        analyzer, mode, record, soylem, eylem,
+                        default_company, default_category,
                     )
-            st.session_state["analysis_result"] = result
-            st.success(f"Analiz tamamlandı — Risk skoru: {result['risk_score']:.0f}/100")
+                st.session_state["analysis_context"] = current_key
+                st.toast(f"Analiz tamamlandı — Risk: {result['risk_score']:.0f}/100", icon="✅")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Analiz hatası: {exc}")
+
+    if st.session_state.get("analysis_result"):
+        st.markdown("---")
+        render_analysis_results(st.session_state["analysis_result"])
+
+# ──────────────────────────────────────────────────────────────
+# ANA İÇERİK — MOD: CANLI DOĞRULAMA (Faz B)
+# ──────────────────────────────────────────────────────────────
+
+elif mode == "Canlı Doğrulama":
+    st.markdown('<div class="sq-card-label">CANLI DOĞRULAMA · KAP + HABER + ÇOKLU KAYNAK</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
+        'KAP bildirimleri ve whitelist haber kaynakları otomatik çekilir; '
+        'çoklu kaynak teyidi ve zaman çizelgesi analizi yapılır.</p>',
+        unsafe_allow_html=True,
+    )
+
+    if not record:
+        st.warning("Lütfen sidebar'dan bir şirket seçin.")
+    else:
+        col1, col2 = st.columns([1.4, 1], gap="large")
+
+        with col1:
+            st.markdown(f'<div class="sq-card-label">ŞİRKET — {record["bist_kodu"]} · {record["esg_kategorisi"]}</div>', unsafe_allow_html=True)
+
+            lc1, lc2 = st.columns(2)
+            with lc1:
+                include_kap = st.checkbox("KAP bildirimi çek", value=True)
+            with lc2:
+                include_news = st.checkbox("Haber RSS tara", value=True)
+
+            soylem_tarihi = st.text_input("Söylem tarihi", value="2025-01-01", help="YYYY-MM-DD")
+
+            soylem = st.text_area(
+                "Söylem", value=record["soylem"], height=120, label_visibility="collapsed",
+                key=f"live_soylem_{selected_company}",
+            )
+
+            if st.button("↻  KAYNAKLARI ÇEK", use_container_width=True):
+                with st.spinner("KAP ve haber kaynakları taranıyor…"):
+                    st.session_state.live_context = fetch_live_context(
+                        company_name=record["sirket_adi"],
+                        bist_code=record["bist_kodu"],
+                        category=record["esg_kategorisi"],
+                        dataset_eylem=record.get("eylem", ""),
+                        include_kap=include_kap,
+                        include_news=include_news,
+                    )
+                st.rerun()
+
+            ctx = st.session_state.get("live_context")
+            preview_eylem = record["eylem"]
+            if ctx:
+                preview_eylem = ctx.get("merged_eylem") or preview_eylem
+                if ctx.get("kap") and ctx["kap"].get("error"):
+                    st.warning(f"KAP: {ctx['kap']['error']}")
+
+            st.markdown('<div class="sq-card-label" style="margin-top:12px">EYLEM — birleşik kaynak metni</div>', unsafe_allow_html=True)
+            eylem = st.text_area(
+                "", value=preview_eylem, height=140, label_visibility="collapsed",
+                key=f"live_eylem_{selected_company}",
+            )
+
+            if st.button("▸  CANLI DOĞRULAMA ANALİZİ", type="primary", use_container_width=True):
+                with st.spinner("KAP + haber + Say-Do Gap analizi…"):
+                    analysis_record = {
+                        **record,
+                        "soylem": soylem,
+                        "eylem": eylem,
+                        "soylem_tarihi": soylem_tarihi,
+                    }
+                    if ctx:
+                        analysis_record = build_enriched_record(analysis_record, ctx, soylem_tarihi)
+                    else:
+                        live = fetch_live_context(
+                            record["sirket_adi"], record["bist_kodu"],
+                            record["esg_kategorisi"], record.get("eylem", ""),
+                            include_kap, include_news,
+                        )
+                        analysis_record = build_enriched_record(analysis_record, live, soylem_tarihi)
+                    result = analyzer.analyze_record(analysis_record)
+                st.session_state["analysis_result"] = result
+                st.success(f"Canlı analiz tamamlandı — Risk: {result['risk_score']:.0f}/100")
+
+        with col2:
+            render_watchlist_panel(watchlist_items, pending=watchlist_pending)
+            ctx = st.session_state.get("live_context")
+            if ctx and ctx.get("verification"):
+                render_verification_panel(ctx["verification"])
+            if ctx and ctx.get("kap") and not ctx["kap"].get("error"):
+                kap = ctx["kap"]
+                st.markdown("**Son KAP bildirimi**")
+                st.caption(f"{kap.get('subject', '')} · {kap.get('publish_date', '')}")
+                if kap.get("source_url"):
+                    st.caption(kap["source_url"])
+            if ctx and ctx.get("news"):
+                st.markdown(f"**Eşleşen haberler ({len(ctx['news'])})**")
+                for n in ctx["news"][:3]:
+                    st.caption(f"• {n.get('title', '')[:80]}")
 
     if st.session_state.get("analysis_result"):
         st.markdown("---")
@@ -853,68 +1261,7 @@ elif mode == "Portföy Tarama":
 # ──────────────────────────────────────────────────────────────
 
 elif mode == "Jüri Demo":
-    st.markdown('<div class="sq-card-label">JÜRİ DEMO SENARYOSU · 30 SANİYE</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
-        '3 flagship şirket için scriptli canlı sunum akışı: Tüpraş → ASELSAN → Ford Otosan.</p>',
-        unsafe_allow_html=True,
-    )
-
-    if "demo_step" not in st.session_state:
-        st.session_state.demo_step = 0
-    if "demo_results" not in st.session_state:
-        st.session_state.demo_results = []
-
-    dc1, dc2, dc3 = st.columns(3)
-    with dc1:
-        if st.button("▸  DEMO BAŞLAT", type="primary", use_container_width=True):
-            st.session_state.demo_step = 1
-            st.session_state.demo_results = []
-            st.rerun()
-    with dc2:
-        if st.button("▸  SONRAKİ ADIM", use_container_width=True, disabled=st.session_state.demo_step == 0):
-            if st.session_state.demo_step < len(DEMO_SCRIPT):
-                st.session_state.demo_step += 1
-            st.rerun()
-    with dc3:
-        if st.button("▸  TÜM DEMOYU ÇALIŞTIR", use_container_width=True):
-            with st.spinner("3 şirket analiz ediliyor…"):
-                st.session_state.demo_results = []
-                for step in DEMO_SCRIPT:
-                    company = step["company"]
-                    rec = next(r for r in get_esg_dataset() if r["sirket_adi"] == company)
-                    st.session_state.demo_results.append(analyzer.analyze_record(rec))
-                st.session_state.demo_step = len(DEMO_SCRIPT)
-            st.rerun()
-
-    for i, step in enumerate(DEMO_SCRIPT):
-        active = i < st.session_state.demo_step
-        icon = "✅" if active else "⏳"
-        st.markdown(
-            f'<div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:10px;'
-            f'padding:14px 18px;margin-bottom:10px;opacity:{"1" if active else "0.5"}">'
-            f'<span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#14E08A">'
-            f'ADIM {step["step"]}</span> {icon} <b>{step["title"]}</b><br>'
-            f'<span style="font-size:12px;color:#8AA0B4">{step["narration"]}</span></div>',
-            unsafe_allow_html=True,
-        )
-
-    if st.session_state.demo_step > 0 and st.session_state.demo_step <= len(DEMO_SCRIPT):
-        if len(st.session_state.demo_results) < st.session_state.demo_step:
-            step = DEMO_SCRIPT[st.session_state.demo_step - 1]
-            with st.spinner(f"{step['company']} analiz ediliyor…"):
-                rec = next(r for r in get_esg_dataset() if r["sirket_adi"] == step["company"])
-                result = analyzer.analyze_record(rec)
-                if len(st.session_state.demo_results) < st.session_state.demo_step:
-                    st.session_state.demo_results.append(result)
-
-    if st.session_state.demo_results:
-        st.markdown("---")
-        tabs = st.tabs([f"{r['company_name']} ({r['risk_score']:.0f})" for r in st.session_state.demo_results])
-        for tab, result in zip(tabs, st.session_state.demo_results):
-            with tab:
-                render_analysis_results(result)
-
+    render_jury_demo()
 
 # ──────────────────────────────────────────────────────────────
 # FOOTER

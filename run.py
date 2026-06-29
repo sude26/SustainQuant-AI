@@ -157,9 +157,10 @@ def cmd_dashboard():
     print("   URL: http://localhost:8501")
     if NLP_MODE == "lightweight":
         print("   Mod: Lite (internet gerekmez, hemen açılır)")
+    else:
+        print("   Mod: Full FinBERT")
     print()
     
-    # Streamlit'in ilk kurulum e-posta sorusunu otomatik atlamak için
     env = os.environ.copy()
     env["STREAMLIT_EMAIL"] = ""
     
@@ -170,6 +171,45 @@ def cmd_dashboard():
         "--server.headless", "true",
         "--server.address", "localhost",
     ], cwd=str(PROJECT_ROOT), env=env)
+
+
+def cmd_all():
+    """API + Dashboard birlikte başlatır (Faz C tam stack)."""
+    import subprocess
+    import os
+    import time
+    from config import API_PORT
+
+    print("=" * 60)
+    print("🚀 SUSTAINQUANT AI — TAM STACK (API + Dashboard)")
+    print("=" * 60)
+    print(f"   API:       http://localhost:{API_PORT}")
+    print(f"   Dashboard: http://localhost:8501")
+    print(f"   WebSocket: ws://localhost:{API_PORT}/api/v1/ws/alerts")
+    print()
+
+    api_proc = subprocess.Popen(
+        [str(VENV_PYTHON if VENV_PYTHON.exists() else sys.executable),
+         str(PROJECT_ROOT / "run.py"), "api"],
+        cwd=str(PROJECT_ROOT),
+    )
+    time.sleep(2)
+
+    env = os.environ.copy()
+    env["STREAMLIT_EMAIL"] = ""
+    env["SQ_USE_API"] = "true"
+    try:
+        subprocess.run([
+            str(VENV_PYTHON if VENV_PYTHON.exists() else sys.executable),
+            "-m", "streamlit", "run", "app.py",
+            "--server.port", "8501",
+            "--browser.gatherUsageStats", "false",
+            "--server.headless", "true",
+            "--server.address", "localhost",
+        ], cwd=str(PROJECT_ROOT), env=env)
+    finally:
+        api_proc.terminate()
+        api_proc.wait(timeout=5)
 
 
 def cmd_demo():
@@ -224,6 +264,7 @@ def main():
         print("  python run.py api        FastAPI sunucusu")
         print("  python run.py setup      İlk kurulum (bir kez)")
         print("  python run.py web        ★ Websiteyi aç (bunu kullanın)")
+        print("  python run.py all        ★ API + Dashboard birlikte")
         print("  python run.py models     Bilgi (indirme yapmaz)")
         print("  python run.py demo       Demo bilgileri")
         sys.exit(1)
@@ -239,6 +280,7 @@ def main():
         "api": cmd_api,
         "dashboard": cmd_dashboard,
         "web": cmd_dashboard,
+        "all": cmd_all,
         "demo": cmd_demo,
     }
 

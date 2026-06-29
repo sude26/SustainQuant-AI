@@ -80,6 +80,38 @@ class ESGBreakdown(BaseModel):
     governance: int = Field(..., description="Yönetişim skoru (0-100)")
 
 
+class SourceDetail(BaseModel):
+    """Kaynak detayı."""
+    source: str
+    url: str = ""
+    type: str = "genel"
+    trusted: bool = False
+    preview: str = ""
+
+
+class VerificationDetail(BaseModel):
+    """Çoklu kaynak teyit sonucu."""
+    source_count: int = 0
+    trusted_count: int = 0
+    independent_count: int = 0
+    confidence: str = "düşük"
+    confidence_score: int = 0
+    label: str = ""
+    multi_source_verified: bool = False
+    details: List[SourceDetail] = Field(default_factory=list)
+
+
+class TimelineDetail(BaseModel):
+    """Zaman çizelgesi analizi."""
+    soylem_date: Optional[str] = None
+    eylem_date: Optional[str] = None
+    gap_days: Optional[int] = None
+    has_anomaly: bool = False
+    severity: str = "low"
+    title: str = ""
+    description: str = ""
+
+
 class AnalysisResponse(BaseModel):
     """
     Tekil analiz yanıtı.
@@ -99,6 +131,8 @@ class AnalysisResponse(BaseModel):
     anomalies: List[AnomalyItem] = Field(default_factory=list)
     source: str = ""
     analyzed_at: str = ""
+    verification: Optional[VerificationDetail] = None
+    timeline: Optional[TimelineDetail] = None
 
 
 class BatchAnalysisResponse(BaseModel):
@@ -154,3 +188,53 @@ class HeatmapResponse(BaseModel):
     categories: List[str]
     matrix: List[List[Optional[float]]]
     cells: List[HeatmapCell]
+
+
+class LiveVerificationRequest(BaseModel):
+    """Canlı KAP + haber doğrulama isteği."""
+    company_name: str = Field(..., description="Şirket adı")
+    bist_code: str = Field(..., description="BIST kodu", examples=["TUPRS"])
+    category: str = Field(default="Genel ESG", description="ESG kategorisi")
+    soylem: str = Field(..., description="Söylem metni")
+    soylem_tarihi: Optional[str] = Field(default="2025-01-01", description="Söylem tarihi (YYYY-MM-DD)")
+    include_kap: bool = Field(default=True, description="KAP bildirimi çek")
+    include_news: bool = Field(default=True, description="Haber RSS tara")
+    use_dataset_eylem: bool = Field(default=True, description="Veri seti eylemini de birleştir")
+
+
+class KAPDisclosureResponse(BaseModel):
+    """KAP bildirim özeti."""
+    bist_code: str
+    company_name: str = ""
+    disclosure_index: Optional[int] = None
+    subject: Optional[str] = None
+    publish_date: Optional[str] = None
+    eylem_text: str = ""
+    source_url: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AlertItem(BaseModel):
+    """Canlı anomali alarmı."""
+    id: str
+    title: str
+    message: str
+    severity: str = "med"
+    company_name: str = ""
+    bist_code: str = ""
+    risk_score: Optional[float] = None
+    source: str = "system"
+    timestamp: str = ""
+
+
+class AlertsResponse(BaseModel):
+    """Son alarmlar listesi."""
+    total: int
+    alerts: List[AlertItem]
+
+
+class NewsScanResponse(BaseModel):
+    """Haber tarama sonucu."""
+    companies_scanned: int
+    total_matches: int
+    new_alerts: int
