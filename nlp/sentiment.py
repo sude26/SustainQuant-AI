@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nlp.models import SustainaQuantNLP
+from nlp.models import create_nlp_engine
 
 
 class SentimentAnalyzer:
@@ -21,8 +21,8 @@ class SentimentAnalyzer:
     Söylem vs. eylem duygusal ton karşılaştırması yapar.
     """
 
-    def __init__(self, nlp_model: SustainaQuantNLP = None):
-        self.nlp = nlp_model or SustainaQuantNLP()
+    def __init__(self, nlp_model=None):
+        self.nlp = nlp_model or create_nlp_engine()
 
     def analyze_sentiment(self, text: str) -> dict:
         """
@@ -37,11 +37,14 @@ class SentimentAnalyzer:
         """
         result = self.nlp.get_finbert_sentiment(text)
 
-        # Polarity hesapla: positive → +1, negative → -1, neutral → 0
+        # Polarite: modelden geldiyse kullan, yoksa skorlardan hesapla
         all_scores = result.get("all_scores", {})
-        positive = all_scores.get("positive", 0.33)
-        negative = all_scores.get("negative", 0.33)
-        polarity = positive - negative  # -1 ile +1 arası
+        if "polarity" in result:
+            polarity = result["polarity"]
+        else:
+            positive = all_scores.get("positive", 0.33)
+            negative = all_scores.get("negative", 0.33)
+            polarity = positive - negative
 
         return {
             "label": result["label"],
@@ -78,7 +81,7 @@ class SentimentAnalyzer:
 
         # Tek yönlü gap: sadece söylem > eylem olduğunda risk oluşur
         # (Söylem negatif, eylem pozitif ise risk düşük)
-        directional_gap = max(0, polarity_gap)
+        directional_gap = min(1.0, max(0, polarity_gap))
 
         # 0-100 arası risk katkısına normalize et
         risk_contribution = min(100, directional_gap * 50)

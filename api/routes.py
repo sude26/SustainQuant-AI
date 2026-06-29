@@ -16,8 +16,8 @@ from api.schemas import (
     AnalysisRequest, AnalysisResponse,
     BatchAnalysisRequest, BatchAnalysisResponse,
     CompanyAnalysisRequest, CompanyListResponse, CompanyInfo,
-    PortfolioSummary, HealthResponse,
-    SimilarityDetail, SentimentDetail,
+    PortfolioSummary, HealthResponse, HeatmapResponse, HeatmapCell,
+    SimilarityDetail, SentimentDetail, AnomalyItem, ESGBreakdown,
 )
 from api.auth import verify_api_key, optional_api_key
 from data.esg_dataset import get_companies, get_esg_dataset
@@ -64,6 +64,13 @@ def _format_response(result: dict) -> AnalysisResponse:
             interpretation=sent.get("interpretation", ""),
         )
 
+    esg = result.get("esg_breakdown", {})
+    esg_detail = ESGBreakdown(**esg) if esg else None
+
+    anomalies = [
+        AnomalyItem(**a) for a in result.get("anomalies", [])
+    ]
+
     return AnalysisResponse(
         company_name=result["company_name"],
         bist_code=result.get("bist_code", ""),
@@ -75,6 +82,8 @@ def _format_response(result: dict) -> AnalysisResponse:
         formatted_report=result["formatted_report"],
         similarity=similarity_detail,
         sentiment=sentiment_detail,
+        esg_breakdown=esg_detail,
+        anomalies=anomalies,
         source=result.get("source", ""),
         analyzed_at=result.get("analyzed_at", datetime.now().isoformat()),
     )
@@ -176,6 +185,21 @@ async def dashboard_summary(auth: dict = Depends(optional_api_key)):
         high_risk_count=summary["high_risk_count"],
         max_risk_score=summary["max_risk_score"],
         min_risk_score=summary["min_risk_score"],
+    )
+
+
+@router.get("/dashboard/heatmap", response_model=HeatmapResponse,
+            summary="Anomali Isı Haritası",
+            description="Şirket × ESG kategori risk matrisini döndürür.")
+async def dashboard_heatmap(auth: dict = Depends(optional_api_key)):
+    """Portföy anomali ısı haritası verisi."""
+    analyzer = get_analyzer()
+    data = analyzer.get_heatmap_data()
+    return HeatmapResponse(
+        companies=data["companies"],
+        categories=data["categories"],
+        matrix=data["matrix"],
+        cells=[HeatmapCell(**c) for c in data["cells"]],
     )
 
 

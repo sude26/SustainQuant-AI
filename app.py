@@ -1,27 +1,33 @@
 """
 SustainaQuant AI – ESG Risk Terminali (Streamlit Dashboard)
 =============================================================
-Gerçek NLP motoruna bağlı interaktif dashboard.
+B2B Finans Terminali arayüzü + gerçek NLP motoru entegrasyonu.
 Rapordaki Katman 3 – Sunum katmanının implementasyonu.
 """
 
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
 from datetime import datetime
 import sys
+import textwrap
 from pathlib import Path
 
-# Proje kök dizinini path'e ekle
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config as sq_config
+
 from config import (
-    DASHBOARD_TITLE, DASHBOARD_PAGE_TITLE, DASHBOARD_LAYOUT,
-    THEME, ANOMALY_COLORS, ANOMALY_LABELS, MASTER_SYSTEM_PROMPT,
+    DASHBOARD_PAGE_TITLE,
+    DASHBOARD_LAYOUT,
     LOGO_PATH,
+    SOURCE_WHITELIST,
 )
-from data.esg_dataset import get_esg_dataset, get_companies
+NLP_MODE = getattr(sq_config, "NLP_MODE", "lightweight")
+from data.esg_dataset import get_esg_dataset, get_companies, get_company_data
+from data.pdf_extractor import extract_text_from_pdf, extract_esg_claims
+from data.demo_scenario import DEMO_SCRIPT
+from services.jury_report import build_analysis_pdf, build_portfolio_pdf
 from nlp.analyzer import GreenwashingAnalyzer
 
 # ──────────────────────────────────────────────────────────────
@@ -29,151 +35,160 @@ from nlp.analyzer import GreenwashingAnalyzer
 # ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title=DASHBOARD_PAGE_TITLE,
+    page_title="SustainQuant AI · ESG Denetim Motoru",
     page_icon="📊",
     layout=DASHBOARD_LAYOUT,
     initial_sidebar_state="expanded",
 )
 
 # ──────────────────────────────────────────────────────────────
-# KURUMSAL KOYU TEMA CSS
+# B2B FİNANS TERMİNALİ CSS (IBM Plex)
 # ──────────────────────────────────────────────────────────────
 
-st.markdown(f"""
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
 <style>
-    /* Ana tema */
-    .stApp {{
-        background-color: {THEME["bg_primary"]};
-        color: {THEME["text_primary"]};
-    }}
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] {{
-        background-color: {THEME["bg_secondary"]};
-        border-right: 1px solid {THEME["border"]};
-    }}
-
-    /* Kartlar */
-    .metric-card {{
-        background: linear-gradient(135deg, {THEME["bg_card"]} 0%, {THEME["bg_secondary"]} 100%);
-        padding: 20px;
-        border-radius: 12px;
-        border-left: 4px solid {THEME["accent_green"]};
-        margin: 8px 0;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-    }}
-
-    .metric-card h3 {{
-        margin: 0 0 8px 0;
-        color: {THEME["text_secondary"]};
-        font-size: 0.85rem;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }}
-
-    .metric-card .value {{
-        font-size: 2rem;
-        font-weight: 700;
-        color: {THEME["text_primary"]};
-    }}
-
-    /* Risk kutusu */
-    .risk-box {{
-        padding: 20px;
-        border-radius: 12px;
-        margin: 10px 0;
-        border: 1px solid {THEME["border"]};
-        background: {THEME["bg_card"]};
-    }}
-
-    /* Rapor çıktısı */
-    .report-output {{
-        background: {THEME["bg_card"]};
-        border: 1px solid {THEME["accent_green"]};
-        border-radius: 12px;
-        padding: 24px;
-        font-family: 'JetBrains Mono', 'Fira Code', monospace;
-        font-size: 0.9rem;
-        line-height: 1.8;
-        white-space: pre-wrap;
-        color: {THEME["accent_green"]};
-        box-shadow: 0 0 20px rgba(0, 255, 136, 0.05);
-    }}
-
-    /* Anomali badge'leri */
-    .badge-tam-uyum {{
-        background-color: rgba(0, 255, 136, 0.15);
-        color: #00ff88;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }}
-    .badge-kapsam {{
-        background-color: rgba(255, 204, 0, 0.15);
-        color: #ffcc00;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }}
-    .badge-celiski {{
-        background-color: rgba(255, 107, 53, 0.15);
-        color: #ff6b35;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }}
-    .badge-yetersizlik {{
-        background-color: rgba(255, 0, 84, 0.15);
-        color: #ff0054;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }}
-
-    /* Başlık stili */
-    .main-title {{
-        font-size: 1.8rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #00ff88, #3b82f6);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0;
-    }}
-
-    .subtitle {{
-        color: {THEME["text_secondary"]};
-        font-size: 0.9rem;
-        margin-top: 4px;
-    }}
-
-    /* Butonlar */
-    .stButton > button {{
-        background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
-        color: #000000;
-        font-weight: 700;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 24px;
-        transition: all 0.3s ease;
-        width: 100%;
-    }}
-
-    .stButton > button:hover {{
-        box-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
-        transform: translateY(-1px);
-    }}
-
-    /* Divider */
-    .section-divider {{
-        border: none;
-        border-top: 1px solid {THEME["border"]};
-        margin: 20px 0;
-    }}
+html, body, [data-testid="stApp"] {
+    background-color: #08111E !important;
+    color: #E8EEF4 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
+[data-testid="stSidebar"] {
+    background-color: #0B1626 !important;
+    border-right: 1px solid #16273B !important;
+}
+[data-testid="stSidebar"] * { color: #8AA0B4 !important; }
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stRadio label {
+    color: #5C7185 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 10px !important;
+    letter-spacing: .14em !important;
+}
+.stButton > button {
+    width: 100% !important;
+    background: linear-gradient(135deg, #14E08A, #0DAE69) !important;
+    color: #06231A !important;
+    border: none !important;
+    border-radius: 9px !important;
+    padding: 14px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    letter-spacing: .1em !important;
+    box-shadow: 0 6px 22px rgba(20,224,138,0.22) !important;
+    transition: all .15s !important;
+}
+.stButton > button:hover {
+    filter: brightness(1.08) !important;
+    transform: translateY(-1px) !important;
+}
+.stTextArea textarea, .stTextInput input {
+    background-color: #0A1424 !important;
+    border: 1px solid #1B2E44 !important;
+    border-radius: 9px !important;
+    color: #E8EEF4 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+    font-size: 13.5px !important;
+    line-height: 1.55 !important;
+}
+.stTextArea textarea:focus, .stTextInput input:focus {
+    border-color: #14E08A !important;
+    box-shadow: 0 0 0 3px rgba(20,224,138,0.12) !important;
+}
+.stSelectbox div[data-baseweb="select"] > div {
+    background-color: #0A1424 !important;
+    border: 1px solid #1B2E44 !important;
+    border-radius: 9px !important;
+    color: #E8EEF4 !important;
+}
+[data-testid="stMetric"] {
+    background: #0E1C2E !important;
+    border: 1px solid #1B2E44 !important;
+    border-radius: 12px !important;
+    padding: 18px 20px !important;
+}
+[data-testid="stMetricLabel"] {
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 10px !important;
+    letter-spacing: .14em !important;
+    color: #5C7185 !important;
+    text-transform: uppercase !important;
+}
+[data-testid="stMetricValue"] {
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-weight: 700 !important;
+    color: #14E08A !important;
+}
+.sq-card {
+    background: #0E1C2E;
+    border: 1px solid #1B2E44;
+    border-radius: 12px;
+    padding: 22px 24px;
+    margin-bottom: 16px;
+}
+.sq-card-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .16em;
+    color: #5C7185;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+}
+.sq-band {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .08em;
+}
+.sq-band-high   { color:#FF5C5C; background:rgba(255,92,92,0.12); border:1px solid #FF5C5C; }
+.sq-band-medium { color:#FFB23E; background:rgba(255,178,62,0.12); border:1px solid #FFB23E; }
+.sq-band-low    { color:#14E08A; background:rgba(20,224,138,0.12); border:1px solid #14E08A; }
+.sq-anomaly {
+    background: #0A1424;
+    border: 1px solid #1B2E44;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    border-left: 3px solid #FF5C5C;
+}
+.sq-anomaly-med { border-left-color: #FFB23E !important; }
+.sq-anomaly-low { border-left-color: #14E08A !important; }
+.report-output {
+    background: #0A1424;
+    border: 1px solid #1B2E44;
+    border-radius: 10px;
+    padding: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: #14E08A;
+}
+@keyframes sq-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.sq-live-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #14E08A;
+    box-shadow: 0 0 8px #14E08A;
+    animation: sq-pulse 2s infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+::-webkit-scrollbar { width: 8px }
+::-webkit-scrollbar-track { background: #0A1424 }
+::-webkit-scrollbar-thumb { background: #1E3349; border-radius: 6px }
+#MainMenu, footer, header { visibility: hidden !important; }
+.block-container { padding-top: 1.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -182,111 +197,317 @@ st.markdown(f"""
 # YARDIMCI FONKSİYONLAR
 # ──────────────────────────────────────────────────────────────
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner="NLP modelleri yükleniyor… (ilk seferde 1-2 dk sürebilir)")
 def load_analyzer():
     """NLP analyzer'ı yükler ve cache'ler."""
-    with st.spinner("🧠 NLP modelleri yükleniyor... (İlk seferde 1-2 dakika sürebilir)"):
-        analyzer = GreenwashingAnalyzer()
-        try:
-            analyzer.nlp.warmup()
-        except Exception as e:
-            st.warning(f"⚠️ Model yükleme uyarısı: {e}")
+    analyzer = GreenwashingAnalyzer()
+    try:
+        analyzer.nlp.warmup()
+    except Exception as e:
+        print(f"Model yükleme uyarısı: {e}")
     return analyzer
 
 
-def get_anomaly_color(anomaly_key: str) -> str:
-    """Anomali durumuna göre renk döndürür."""
-    return ANOMALY_COLORS.get(anomaly_key, THEME["text_secondary"])
+def risk_to_band(risk_score: float) -> str:
+    if risk_score > 50:
+        return "YÜKSEK"
+    if risk_score > 25:
+        return "ORTA"
+    return "DÜŞÜK"
 
 
-def create_gauge_chart(risk_score: float, title: str = "Yeşil Aklama Risk Skoru") -> go.Figure:
-    """Risk skoru için gauge chart oluşturur."""
-    # Renk belirleme
-    if risk_score <= 25:
-        bar_color = ANOMALY_COLORS["tam_uyum"]
-    elif risk_score <= 50:
-        bar_color = ANOMALY_COLORS["kapsam_uyusmazligi"]
-    elif risk_score <= 75:
-        bar_color = ANOMALY_COLORS["dogrudan_celiski"]
-    else:
-        bar_color = ANOMALY_COLORS["veri_yetersizligi"]
+def band_style(band: str) -> tuple[str, str, str]:
+    if band == "YÜKSEK":
+        return "sq-band-high", "#FF5C5C", "high"
+    if band == "ORTA":
+        return "sq-band-medium", "#FFB23E", "med"
+    return "sq-band-low", "#14E08A", "low"
 
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=risk_score,
-        number={"suffix": "/100", "font": {"size": 36, "color": "white"}},
-        title={"text": title, "font": {"size": 16, "color": "#8b949e"}},
-        gauge={
-            "axis": {
-                "range": [0, 100],
-                "tickwidth": 1,
-                "tickcolor": "#30363d",
-                "dtick": 25,
-                "tickfont": {"color": "#8b949e"},
-            },
-            "bar": {"color": bar_color, "thickness": 0.75},
-            "bgcolor": "#1e2530",
-            "borderwidth": 0,
-            "steps": [
-                {"range": [0, 25], "color": "rgba(0, 255, 136, 0.08)"},
-                {"range": [25, 50], "color": "rgba(255, 204, 0, 0.08)"},
-                {"range": [50, 75], "color": "rgba(255, 107, 53, 0.08)"},
-                {"range": [75, 100], "color": "rgba(255, 0, 84, 0.08)"},
-            ],
-            "threshold": {
-                "line": {"color": "white", "width": 2},
-                "thickness": 0.8,
-                "value": risk_score,
-            },
-        },
+
+def score_bar_color(value: float) -> str:
+    return "#FF5C5C" if value < 45 else ("#FFB23E" if value < 65 else "#14E08A")
+
+
+def risk_score_color(score: float) -> str:
+    if score > 50:
+        return "#FF5C5C"
+    if score > 25:
+        return "#FFB23E"
+    return "#14E08A"
+
+
+def derive_esg_scores(result: dict) -> dict:
+    """Backend E/S/G kırılımını UI formatına çevirir."""
+    esg = result.get("esg_breakdown", {})
+    return {
+        "e": esg.get("environmental", 0),
+        "s": esg.get("social", 0),
+        "g": esg.get("governance", 0),
+    }
+
+
+def derive_anomalies(result: dict) -> list:
+    """Backend anomali listesini UI formatına çevirir."""
+    items = []
+    for a in result.get("anomalies", []):
+        items.append({
+            "baslik": a.get("title", a.get("baslik", "")),
+            "aciklama": a.get("description", a.get("aciklama", "")),
+            "seviye": a.get("severity", a.get("seviye", "med")),
+        })
+    return items
+
+
+def company_watchlist_items(summary: dict) -> list:
+    """Şirket bazında en yüksek risk skorunu döndürür."""
+    by_company = {}
+    for r in summary["results"]:
+        name = r["company_name"]
+        if name not in by_company or r["risk_score"] > by_company[name]["risk_score"]:
+            by_company[name] = r
+    return sorted(by_company.values(), key=lambda x: x["risk_score"], reverse=True)
+
+
+def render_html(html: str):
+    """HTML'i kod bloğu olarak değil, gerçek UI olarak render eder."""
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
+
+
+def render_watchlist_panel(items: list, pending: bool = False):
+    """İzleme listesi — native Streamlit (HTML kod bloğu sorunu yok)."""
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin-bottom:10px">İZLEME LİSTESİ</p>',
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        for r in items:
+            left, right = st.columns([4, 1])
+            with left:
+                st.markdown(f"**{r['bist_code']}**")
+                st.caption(r["company_name"])
+            with right:
+                score = r.get("risk_score")
+                label = f"{score:.0f}" if score is not None else "—"
+                color = risk_score_color(score) if score is not None else "#5C7185"
+                st.markdown(
+                    f'<p style="text-align:right;font-family:IBM Plex Mono,monospace;'
+                    f'font-weight:700;color:{color};margin:8px 0 0">{label}</p>',
+                    unsafe_allow_html=True,
+                )
+        if pending:
+            st.caption("Skorlar için alttaki butona basın.")
+
+
+def render_anomalies_panel(anomaliler: list):
+    """Anomali kartları — HTML kod bloğu sorunu yok."""
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin-bottom:10px">ANOMALİLER</p>',
+        unsafe_allow_html=True,
+    )
+    icons = {"high": "🔴", "med": "🟠", "low": "🟢"}
+    with st.container(border=True):
+        for a in anomaliler:
+            icon = icons.get(a.get("seviye", a.get("severity", "med")), "🟠")
+            title = a.get("baslik", a.get("title", ""))
+            desc = a.get("aciklama", a.get("description", ""))
+            st.markdown(f"**{icon} {title}**")
+            st.caption(desc)
+
+
+def placeholder_watchlist() -> list:
+    return [{
+        "bist_code": c["bist_kodu"],
+        "company_name": c["sirket_adi"],
+        "risk_score": None,
+    } for c in get_companies()]
+
+
+def render_analysis_results(result: dict):
+    """B2B terminal sonuç paneli — gerçek NLP çıktısı."""
+    risk_skoru = result["risk_score"]
+    band = risk_to_band(risk_skoru)
+    band_class, band_color, _ = band_style(band)
+    esg = derive_esg_scores(result)
+    anomaliler = derive_anomalies(result)
+    ticker = result.get("bist_code") or "—"
+    sirket_adi = result["company_name"]
+
+    render_html(f"""
+    <div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:12px;
+                padding:18px 22px;display:flex;align-items:center;
+                justify-content:space-between;margin-bottom:20px">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:12px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#CFE0EC">{ticker}</span>
+          <span style="font-size:17px;font-weight:600;color:#E8EEF4">{sirket_adi}</span>
+        </div>
+        <div style="font-size:12px;color:#5C7185;margin-top:6px">
+          {result['category']} · Say-Do Gap · SQ-Detect Lite
+        </div>
+      </div>
+      <div class="sq-band {band_class}">
+        <span style="width:8px;height:8px;border-radius:50%;background:{band_color};display:inline-block"></span>
+        {band} YEŞİL AKLAMA RİSKİ
+      </div>
+    </div>
+    """)
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("RİSK SKORU", f"{risk_skoru:.0f} / 100")
+    with m2:
+        st.metric("E-SKOR (ÇEVRESEL)", f"{esg['e']} / 100")
+    with m3:
+        st.metric("S-SKOR (SOSYAL)", f"{esg['s']} / 100")
+    with m4:
+        st.metric("G-SKOR (YÖNETİŞİM)", f"{esg['g']} / 100")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    r1, r2 = st.columns([1.2, 1], gap="large")
+    with r1:
+        render_html(f"""
+        <div class="sq-card">
+          <div class="sq-card-label">AI GEREKÇESİ</div>
+          <p style="font-size:13.5px;line-height:1.65;color:#CFE0EC;margin:0">{result['summary']}</p>
+        </div>
+        """)
+
+    with r2:
+        render_anomalies_panel(anomaliler)
+
+    e, s, g = esg["e"], esg["s"], esg["g"]
+    render_html(f"""
+    <div class="sq-card">
+      <div class="sq-card-label">ESG KIRILIMI · PERFORMANS</div>
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px">
+          <span style="font-size:13px;color:#CFE0EC">Çevresel (E)</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:{score_bar_color(e)}">{e}</span>
+        </div>
+        <div style="height:8px;border-radius:5px;background:#16293D;overflow:hidden">
+          <div style="height:100%;width:{e}%;background:{score_bar_color(e)};border-radius:5px"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px">
+          <span style="font-size:13px;color:#CFE0EC">Sosyal (S)</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:{score_bar_color(s)}">{s}</span>
+        </div>
+        <div style="height:8px;border-radius:5px;background:#16293D;overflow:hidden">
+          <div style="height:100%;width:{s}%;background:{score_bar_color(s)};border-radius:5px"></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px">
+          <span style="font-size:13px;color:#CFE0EC">Yönetişim (G)</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:{score_bar_color(g)}">{g}</span>
+        </div>
+        <div style="height:8px;border-radius:5px;background:#16293D;overflow:hidden">
+          <div style="height:100%;width:{g}%;background:{score_bar_color(g)};border-radius:5px"></div>
+        </div>
+      </div>
+    </div>
+    """)
+
+    with st.expander("Detaylı NLP Metrikleri & Master System Prompt Raporu"):
+        sim = result["similarity"]
+        sent = result["sentiment"]
+        comb = result["combined"]
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        dc1.metric("Benzerlik", f"{sim['similarity']:.2%}")
+        dc2.metric("Duygu Boşluğu", f"{sent['sentiment_gap']:.2f}")
+        dc3.metric("Benzerlik Risk", f"{comb['similarity_risk']:.1f}")
+        dc4.metric("Duygu Risk", f"{comb['sentiment_risk']:.1f}")
+        st.markdown(f'<div class="report-output">{result["formatted_report"]}</div>', unsafe_allow_html=True)
+
+    # Söylem-Eylem Boşluğu görselleştirmesi
+    sim_val = result["similarity"]["similarity"]
+    sent_gap = result["sentiment"]["sentiment_gap"]
+    st.markdown('<div class="sq-card-label" style="margin-top:8px">SÖYLEM-EYLEM BOŞLUĞU</div>', unsafe_allow_html=True)
+    gap_col1, gap_col2, gap_col3 = st.columns(3)
+    gap_col1.metric("Anlamsal Benzerlik", f"{sim_val:.2%}")
+    gap_col2.metric(
+        "Duygu Boşluğu",
+        f"{sent_gap:.2f}",
+        help="Söylemin eylemden ne kadar daha iyimser olduğu (0-1). Yüksek = yeşil aklama sinyali.",
+    )
+    gap_col3.metric("Say-Do Risk", f"{result['risk_score']:.1f}/100")
+
+    try:
+        pdf_bytes = build_analysis_pdf(result)
+        st.download_button(
+            "📄  Jüri PDF Raporu İndir",
+            data=pdf_bytes,
+            file_name=f"sustainquant_{result.get('bist_code', 'rapor')}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"pdf_dl_{result.get('company_name', '')}_{result.get('category', '')}",
+        )
+    except Exception as e:
+        st.caption(f"PDF oluşturulamadı: {e}")
+
+
+def create_heatmap_chart(heatmap_data: dict) -> go.Figure:
+    """Anomali ısı haritası (şirket × kategori)."""
+    import math
+    z_raw = heatmap_data["matrix"]
+    z = [[float(v) if v is not None else math.nan for v in row] for row in z_raw]
+    fig = go.Figure(go.Heatmap(
+        z=z,
+        x=heatmap_data["categories"],
+        y=heatmap_data["companies"],
+        colorscale=[
+            [0.0, "#14E08A"],
+            [0.35, "#FFB23E"],
+            [0.55, "#FF8C42"],
+            [0.75, "#FF5C5C"],
+            [1.0, "#CC2244"],
+        ],
+        zmin=0,
+        zmax=100,
+        text=[[f"{v:.0f}" if v is not None else "" for v in row] for row in z_raw],
+        texttemplate="%{text}",
+        textfont={"size": 14, "color": "#E8EEF4"},
+        hovertemplate="Şirket: %{y}<br>Kategori: %{x}<br>Risk: %{z:.1f}/100<extra></extra>",
+        colorbar=dict(title="Risk", tickfont=dict(color="#8AA0B4")),
     ))
-
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"color": "white"},
-        height=280,
-        margin=dict(l=30, r=30, t=50, b=10),
+        font={"color": "#E8EEF4"},
+        height=320,
+        margin=dict(l=80, r=20, t=30, b=60),
+        xaxis=dict(tickangle=-20),
     )
     return fig
 
 
 def create_comparison_chart(results: list) -> go.Figure:
-    """Şirket karşılaştırma bar chart'ı oluşturur."""
-    companies = [r["company_name"] for r in results]
-    scores = [r["risk_score"] for r in results]
-    colors = [get_anomaly_color(r["anomaly_key"]) for r in results]
-    categories = [r["category"] for r in results]
+    sorted_results = sorted(results, key=lambda r: r["risk_score"], reverse=True)
+    companies = [r["company_name"] for r in sorted_results]
+    scores = [r["risk_score"] for r in sorted_results]
+    colors = [risk_score_color(s) for s in scores]
+    categories = [r["category"] for r in sorted_results]
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
+    fig = go.Figure(go.Bar(
         x=companies,
         y=scores,
         marker_color=colors,
         text=[f"{s:.1f}" for s in scores],
         textposition="outside",
-        textfont={"color": "white", "size": 14, "family": "JetBrains Mono"},
-        hovertemplate="<b>%{x}</b><br>Kategori: %{customdata}<br>Risk Skoru: %{y:.1f}/100<extra></extra>",
+        textfont={"color": "white", "size": 14, "family": "IBM Plex Mono"},
+        hovertemplate="<b>%{x}</b><br>Kategori: %{customdata}<br>Risk: %{y:.1f}/100<extra></extra>",
         customdata=categories,
     ))
-
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font={"color": "white"},
         height=350,
-        yaxis=dict(
-            range=[0, 110],
-            gridcolor="rgba(48, 54, 61, 0.5)",
-            title=dict(
-                text="Risk Skoru",
-                font=dict(color="#8b949e")
-            ),
-        ),
-        xaxis=dict(
-            title="",
-            tickfont={"size": 13},
-        ),
+        yaxis=dict(range=[0, 110], gridcolor="rgba(48,54,61,0.5)", title="Risk Skoru"),
         margin=dict(l=50, r=20, t=20, b=60),
         showlegend=False,
     )
@@ -294,350 +515,415 @@ def create_comparison_chart(results: list) -> go.Figure:
 
 
 # ──────────────────────────────────────────────────────────────
+# NLP MOTORU
+# ──────────────────────────────────────────────────────────────
+
+analyzer = load_analyzer()
+models_ready = analyzer.nlp.is_ready
+engine_label = getattr(analyzer.nlp, "mode_label", "SQ-Detect v1.0-MVP")
+
+watchlist_pending = "watchlist_summary" not in st.session_state
+if watchlist_pending:
+    watchlist_items = placeholder_watchlist()
+    high_risk_count = 0
+else:
+    watchlist_summary = st.session_state.watchlist_summary
+    watchlist_items = company_watchlist_items(watchlist_summary)
+    high_risk_count = watchlist_summary["high_risk_count"]
+
+companies = get_companies()
+company_options = [f"{c['sirket_adi']} ({c['bist_kodu']})" for c in companies]
+
+# ──────────────────────────────────────────────────────────────
 # SIDEBAR
 # ──────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    # Logo
     if LOGO_PATH.exists():
         st.image(str(LOGO_PATH), use_container_width=True)
     else:
-        st.markdown("## 📊 SustainQuant AI")
+        st.markdown("""
+        <div style="text-align:center;padding:12px 0 20px;border-bottom:1px solid #16273B;margin-bottom:20px">
+          <div style="font-weight:700;font-size:17px;letter-spacing:.02em;color:#E8EEF4">
+            SUSTAIN<span style="color:#14E08A">QUANT</span>
+          </div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.22em;color:#5C7185;margin-top:5px">
+            AI · ESG ANALİTİKS
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("### 🎛️ Kontrol Paneli")
-
-    # Analiz modu seçimi
+    st.markdown('<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.14em;color:#5C7185;margin-bottom:8px">ANALİZ MODU</div>', unsafe_allow_html=True)
     mode = st.radio(
-        "Analiz Modu",
-        ["📋 Kayıtlı Şirket Analizi", "✍️ Manuel Giriş", "📊 Toplu Portföy Tarama"],
-        index=0,
+        "",
+        ["Kayıtlı Şirket", "Manuel Giriş", "PDF Rapor Yükle", "Portföy Tarama", "Jüri Demo"],
+        label_visibility="collapsed",
     )
 
-    st.markdown("---")
+    record = None
+    selected_company = None
 
-    if mode == "📋 Kayıtlı Şirket Analizi":
-        companies = get_companies()
-        company_names = [c["sirket_adi"] for c in companies]
-        selected_company = st.selectbox(
-            "🏢 Şirket Seçin",
-            company_names,
-            index=0,
-        )
+    if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle"):
+        st.markdown('<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.14em;color:#5C7185;margin:16px 0 8px">ANALİZ EDİLECEK ŞİRKET</div>', unsafe_allow_html=True)
+        selected_option = st.selectbox("", company_options, label_visibility="collapsed")
+        selected_company = selected_option.split(" (")[0]
+        if mode == "Kayıtlı Şirket":
+            record = next(r for r in get_esg_dataset() if r["sirket_adi"] == selected_company)
+    elif mode not in ("Portföy Tarama", "Jüri Demo"):
+        st.markdown('<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.14em;color:#5C7185;margin:16px 0 8px">ANALİZ EDİLECEK ŞİRKET</div>', unsafe_allow_html=True)
+        st.selectbox("", company_options, label_visibility="collapsed", disabled=True)
 
-    st.markdown("---")
+    model_status = "Çevrimiçi" if models_ready else "Hazırlanıyor"
+    source_count = len(SOURCE_WHITELIST)
+    mode_hint = "Lite · offline" if NLP_MODE == "lightweight" else "Full · FinBERT"
 
-    # Sistem bilgisi
-    st.markdown("### ℹ️ Sistem Bilgisi")
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f"""
-    <div style="font-size: 0.8rem; color: {THEME['text_secondary']}; line-height: 1.6;">
-    <b>Proje:</b> SustainaQuant AI<br>
-    <b>Takım ID:</b> 918431<br>
-    <b>Versiyon:</b> 1.0.0-MVP<br>
-    <b>Motor:</b> FinBERT + BERTürk<br>
-    <b>Algoritma:</b> Say-Do Gap<br>
-    <b>Tarih:</b> {datetime.now().strftime("%d.%m.%Y %H:%M")}
+    <div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:9px;padding:12px 14px;margin-bottom:14px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;color:#5C7185;margin-bottom:8px">MODEL DURUMU</div>
+      <div><span class="sq-live-dot"></span><span style="font-size:12px;font-weight:600;color:#CFE0EC">{engine_label}</span></div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5C7185;margin-top:6px">{model_status} · {mode_hint} · {source_count} kaynak</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:9px;padding:12px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:#FF5C5C">{high_risk_count}</div>
+        <div style="font-size:10px;color:#8AA0B4;margin-top:4px">Yüksek risk</div>
+      </div>
+      <div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:9px;padding:12px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:#14E08A">{len(companies)}</div>
+        <div style="font-size:10px;color:#8AA0B4;margin-top:4px">İzlenen şirket</div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
 
+# Şirket değişince eski analiz sonucunu temizle
+if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle") and selected_company:
+    current_key = f"{mode}_{selected_company}"
+else:
+    current_key = mode
+if st.session_state.get("analysis_context") != current_key:
+    st.session_state.pop("analysis_result", None)
+    st.session_state["analysis_context"] = current_key
+
+
 # ──────────────────────────────────────────────────────────────
-# ANA İÇERİK
+# TOPBAR
 # ──────────────────────────────────────────────────────────────
 
-# Başlık
-st.markdown(f"""
-<div style="margin-bottom: 24px;">
-    <p class="main-title">{DASHBOARD_TITLE}</p>
-    <p class="subtitle">NLP Tabanlı Yeşil Aklama (Greenwashing) Tespit & ESG Risk Analitiği Platformu</p>
+st.markdown("""
+<div style="display:flex;align-items:center;justify-content:space-between;
+            padding:14px 0;border-bottom:1px solid #16273B;margin-bottom:24px">
+  <div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+                 letter-spacing:.18em;color:#14E08A">ESG DENETİM MOTORU</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#3C4F63;margin:0 12px">/</span>
+    <span style="font-size:13px;color:#8AA0B4">Greenwashing Risk Terminali</span>
+  </div>
+  <div>
+    <span class="sq-live-dot"></span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;
+                 font-weight:600;letter-spacing:.1em;color:#14E08A">CANLI</span>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Analyzer'ı yükle
-analyzer = load_analyzer()
 
-# ── MOD 1: Kayıtlı Şirket Analizi ──────────────────────────
+# ──────────────────────────────────────────────────────────────
+# ANA İÇERİK — MOD 1 & 2: SÖYLEM / EYLEM ANALİZİ
+# ──────────────────────────────────────────────────────────────
 
-if mode == "📋 Kayıtlı Şirket Analizi":
-    dataset = get_esg_dataset()
-    company_data = [r for r in dataset if r["sirket_adi"] == selected_company]
+if mode in ("Kayıtlı Şirket", "Manuel Giriş"):
+    col1, col2 = st.columns([1.4, 1], gap="large")
 
-    if company_data:
-        record = company_data[0]
-
-        # Üst bilgi kartları
-        info_col1, info_col2, info_col3 = st.columns(3)
-        with info_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>Şirket</h3>
-                <div class="value">{record['sirket_adi']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with info_col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>BIST Kodu</h3>
-                <div class="value">{record['bist_kodu']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with info_col3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>ESG Kategorisi</h3>
-                <div class="value" style="font-size: 1.2rem;">{record['esg_kategorisi']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-
-        # Söylem vs Eylem paneli
-        col_soylem, col_eylem = st.columns(2)
-
-        with col_soylem:
-            st.markdown("#### 📢 Şirket Söylemi (ESG Raporu)")
-            st.info(record["soylem"])
-
-        with col_eylem:
-            st.markdown("#### 🔍 Gerçekleşen Eylem (Bağımsız Kaynak)")
-            st.warning(record["eylem"])
-            st.caption(f"📌 Kaynak: {record.get('kaynak', 'N/A')}")
-
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-
-        # Analizi çalıştır
-        if st.button("🚀 Say-Do Gap Analizini Çalıştır", use_container_width=True):
-            with st.spinner("🧠 NLP motoru analiz yapıyor..."):
-                result = analyzer.analyze_record(record)
-
-            st.session_state.current_result = result
-            st.session_state.analysis_done = True
-
-        # Sonuçları göster
-        if st.session_state.get("analysis_done"):
-            result = st.session_state.current_result
-
-            st.markdown("### 📊 Analiz Sonuçları")
-
-            # Gauge chart ve metrikler
-            col_gauge, col_metrics = st.columns([1, 1])
-
-            with col_gauge:
-                fig = create_gauge_chart(result["risk_score"])
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col_metrics:
-                # Anomali durumu
-                anomaly_color = get_anomaly_color(result["anomaly_key"])
-                st.markdown(f"""
-                <div class="risk-box" style="border-left: 4px solid {anomaly_color};">
-                    <div style="color: {THEME['text_secondary']}; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Anomali Durumu</div>
-                    <div style="color: {anomaly_color}; font-size: 1.5rem; font-weight: 700; margin: 8px 0;">{result['anomaly_status']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Detay metrikler
-                sim = result["similarity"]
-                sent = result["sentiment"]
-                comb = result["combined"]
-
-                m1, m2 = st.columns(2)
-                with m1:
-                    st.metric("Benzerlik Skoru", f"{sim['similarity']:.2%}")
-                    st.metric("Benzerlik Risk", f"{comb['similarity_risk']:.1f}/100")
-                with m2:
-                    st.metric("Duygu Boşluğu", f"{sent['sentiment_gap']:.2f}")
-                    st.metric("Duygu Risk", f"{comb['sentiment_risk']:.1f}/100")
-
-            st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-
-            # Master System Prompt formatında rapor çıktısı
-            st.markdown("### 📋 Analiz Raporu (Master System Prompt Çıktısı)")
-            st.markdown(f"""
-            <div class="report-output">{result['formatted_report']}</div>
-            """, unsafe_allow_html=True)
-
-            # Duygu analizi detayı
-            st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-            st.markdown("### 🎭 Duygu Analizi Detayı")
-            st.markdown(f"*{sent['interpretation']}*")
-
-            sent_col1, sent_col2 = st.columns(2)
-            with sent_col1:
-                soylem_s = sent["soylem_sentiment"]
-                st.markdown(f"**Söylem Duygusu:** `{soylem_s['label']}` (polarite: {soylem_s['polarity']:.2f})")
-            with sent_col2:
-                eylem_s = sent["eylem_sentiment"]
-                st.markdown(f"**Eylem Duygusu:** `{eylem_s['label']}` (polarite: {eylem_s['polarity']:.2f})")
-
-
-# ── MOD 2: Manuel Giriş ─────────────────────────────────────
-
-elif mode == "✍️ Manuel Giriş":
-    st.markdown("### ✍️ Manuel Söylem-Eylem Analizi")
-    st.markdown(f"<p style='color:{THEME['text_secondary']}'>Herhangi bir şirketin ESG söylemini ve gerçekleşen eylemini girerek yeşil aklama risk analizi yapın.</p>", unsafe_allow_html=True)
-
-    col_input1, col_input2 = st.columns(2)
-
-    with col_input1:
-        manual_company = st.text_input("🏢 Şirket Adı", placeholder="Örn: Tüpraş")
-        manual_category = st.text_input("📁 ESG Kategorisi", placeholder="Örn: Enerji Verimliliği")
-
-    with col_input2:
-        pass
-
-    manual_soylem = st.text_area(
-        "📢 Şirket Söylemi (ESG Raporu)",
-        height=120,
-        placeholder="Şirketin sürdürülebilirlik raporundaki iddiasını buraya yazın..."
-    )
-
-    manual_eylem = st.text_area(
-        "🔍 Gerçekleşen Eylem (Bağımsız Kaynak)",
-        height=120,
-        placeholder="Bağımsız kaynaklardan doğrulanan gerçek durumu buraya yazın..."
-    )
-
-    if st.button("🚀 Analizi Çalıştır", use_container_width=True):
-        if manual_company and manual_soylem and manual_eylem:
-            with st.spinner("🧠 NLP motoru analiz yapıyor..."):
-                result = analyzer.analyze_custom(
-                    company_name=manual_company,
-                    category=manual_category or "Genel ESG",
-                    soylem=manual_soylem,
-                    eylem=manual_eylem,
-                )
-
-            # Gauge ve rapor gösterimi
-            col_g, col_r = st.columns([1, 1])
-            with col_g:
-                fig = create_gauge_chart(result["risk_score"])
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col_r:
-                anomaly_color = get_anomaly_color(result["anomaly_key"])
-                st.markdown(f"""
-                <div class="risk-box" style="border-left: 4px solid {anomaly_color};">
-                    <div style="color: {THEME['text_secondary']}; font-size: 0.85rem;">ANOMALİ DURUMU</div>
-                    <div style="color: {anomaly_color}; font-size: 1.5rem; font-weight: 700; margin: 8px 0;">{result['anomaly_status']}</div>
-                    <div style="color: {THEME['text_secondary']}; font-size: 0.9rem; margin-top: 12px;">
-                        Benzerlik: {result['similarity']['similarity']:.2%} | 
-                        Duygu Boşluğu: {result['sentiment']['sentiment_gap']:.2f}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            st.markdown("### 📋 Analiz Raporu")
-            st.markdown(f"""
-            <div class="report-output">{result['formatted_report']}</div>
-            """, unsafe_allow_html=True)
+    with col1:
+        if mode == "Kayıtlı Şirket" and record:
+            default_soylem = record["soylem"]
+            default_eylem = record["eylem"]
+            default_company = record["sirket_adi"]
+            default_category = record["esg_kategorisi"]
+            st.markdown(f'<div class="sq-card-label">01 · KAYNAK — {record.get("kaynak", "N/A")}</div>', unsafe_allow_html=True)
         else:
-            st.error("⚠️ Lütfen tüm alanları doldurun.")
+            default_soylem = ""
+            default_eylem = ""
+            default_company = ""
+            default_category = "Genel ESG"
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                default_company = st.text_input("Şirket Adı", placeholder="Örn: Tüpraş")
+            with mc2:
+                default_category = st.text_input("ESG Kategorisi", placeholder="Örn: Enerji Verimliliği")
 
+        st.markdown('<div class="sq-card-label">02 · SÖYLEM — şirketin sürdürülebilirlik iddiası</div>', unsafe_allow_html=True)
+        soylem_key = f"soylem_{selected_company if record else 'manual'}"
+        eylem_key = f"eylem_{selected_company if record else 'manual'}"
 
-# ── MOD 3: Toplu Portföy Tarama ─────────────────────────────
+        soylem = st.text_area(
+            "", value=default_soylem, height=130,
+            placeholder="Şirketin kamuya açık taahhüdünü yapıştırın…",
+            label_visibility="collapsed", key=soylem_key,
+        )
 
-elif mode == "📊 Toplu Portföy Tarama":
-    st.markdown("### 📊 Toplu Portföy Tarama")
-    st.markdown(f"<p style='color:{THEME['text_secondary']}'>Tüm kayıtlı şirketlerin ESG risk analizini tek tıkla çalıştırın. Portföy yöneticileri için idealdir.</p>", unsafe_allow_html=True)
+        st.markdown('<div class="sq-card-label" style="margin-top:16px">03 · EYLEM — güncel haber / resmi veri</div>', unsafe_allow_html=True)
+        eylem = st.text_area(
+            "", value=default_eylem, height=130,
+            placeholder="KAP açıklaması, lisans verisi veya haber metnini yapıştırın…",
+            label_visibility="collapsed", key=eylem_key,
+        )
 
-    if st.button("🔄 Tüm Şirketleri Tara", use_container_width=True):
-        with st.spinner("🧠 Portföy taranıyor... (Bu işlem biraz zaman alabilir)"):
+        analiz_et = st.button("▸  DERİNLEMESİNE ANALİZ BAŞLAT", type="primary", use_container_width=True)
+
+    with col2:
+        render_watchlist_panel(watchlist_items, pending=watchlist_pending)
+        if st.button("↻  İzleme listesini güncelle", key="refresh_watchlist", use_container_width=True):
+            with st.spinner("Portföy skorları hesaplanıyor…"):
+                st.session_state.watchlist_summary = analyzer.get_portfolio_summary()
+                watchlist_items = company_watchlist_items(st.session_state.watchlist_summary)
+                st.session_state["high_risk_count"] = st.session_state.watchlist_summary["high_risk_count"]
+            st.rerun()
+
+    if analiz_et:
+        if not soylem or not eylem:
+            st.error("Lütfen hem söylem hem eylem alanını doldurun.")
+        elif mode == "Manuel Giriş" and not default_company:
+            st.error("Lütfen şirket adını girin.")
+        else:
+            with st.spinner("Say-Do Gap analizi çalışıyor…"):
+                if mode == "Kayıtlı Şirket" and record:
+                    analysis_record = {**record, "soylem": soylem, "eylem": eylem}
+                    result = analyzer.analyze_record(analysis_record)
+                else:
+                    result = analyzer.analyze_custom(
+                        company_name=default_company,
+                        category=default_category,
+                        soylem=soylem,
+                        eylem=eylem,
+                    )
+            st.session_state["analysis_result"] = result
+            st.success(f"Analiz tamamlandı — Risk skoru: {result['risk_score']:.0f}/100")
+
+    if st.session_state.get("analysis_result"):
+        st.markdown("---")
+        render_analysis_results(st.session_state["analysis_result"])
+
+# ──────────────────────────────────────────────────────────────
+# ANA İÇERİK — MOD 3: PDF RAPOR YÜKLE
+# ──────────────────────────────────────────────────────────────
+
+elif mode == "PDF Rapor Yükle":
+    st.markdown('<div class="sq-card-label">PDF SÜRDÜRÜLEBİLİRLİK RAPORU YÜKLE</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
+        'Şirketin sürdürülebilirlik raporunu yükleyin; söylem metni otomatik çıkarılır. '
+        'Eylem verisi kayıtlı şirket verisinden veya manuel girişten gelir.</p>',
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns([1.4, 1], gap="large")
+
+    with col1:
+        uploaded = st.file_uploader("PDF dosyası", type=["pdf"], label_visibility="collapsed")
+
+        company_records = get_company_data(selected_company) if selected_company else []
+        default_record = company_records[0] if company_records else None
+
+        pdf_soylem = ""
+        if uploaded:
+            with st.spinner("PDF metni çıkarılıyor…"):
+                raw_text = extract_text_from_pdf(uploaded.read())
+                pdf_soylem = extract_esg_claims(raw_text)
+            st.success(f"PDF okundu — {len(raw_text):,} karakter, {len(pdf_soylem):,} karakter ESG özeti")
+
+        st.markdown('<div class="sq-card-label">SÖYLEM — PDF\'den çıkarılan iddialar</div>', unsafe_allow_html=True)
+        soylem = st.text_area(
+            "", value=pdf_soylem, height=130,
+            placeholder="PDF yükleyin veya metni yapıştırın…",
+            label_visibility="collapsed", key="pdf_soylem",
+        )
+
+        st.markdown('<div class="sq-card-label" style="margin-top:16px">EYLEM — doğrulama verisi</div>', unsafe_allow_html=True)
+        default_eylem = default_record["eylem"] if default_record else ""
+        eylem = st.text_area(
+            "", value=default_eylem, height=130,
+            placeholder="Resmi kaynak / haber metni…",
+            label_visibility="collapsed", key="pdf_eylem",
+        )
+
+        if st.button("▸  PDF ANALİZİ BAŞLAT", type="primary", use_container_width=True):
+            if not soylem or not eylem:
+                st.error("PDF söylem ve eylem alanları dolu olmalı.")
+            elif not selected_company:
+                st.error("Lütfen sidebar'dan şirket seçin.")
+            else:
+                with st.spinner("Say-Do Gap analizi çalışıyor…"):
+                    analysis_record = {
+                        **(default_record or {}),
+                        "sirket_adi": selected_company,
+                        "soylem": soylem,
+                        "eylem": eylem,
+                        "esg_kategorisi": (default_record or {}).get("esg_kategorisi", "Genel ESG"),
+                    }
+                    result = analyzer.analyze_record(analysis_record)
+                st.session_state["analysis_result"] = result
+                st.success(f"Analiz tamamlandı — Risk skoru: {result['risk_score']:.0f}/100")
+
+    with col2:
+        render_watchlist_panel(watchlist_items, pending=watchlist_pending)
+        if st.button("↻  İzleme listesini güncelle", key="refresh_watchlist_pdf", use_container_width=True):
+            with st.spinner("Portföy skorları hesaplanıyor…"):
+                st.session_state.watchlist_summary = analyzer.get_portfolio_summary()
+            st.rerun()
+
+    if st.session_state.get("analysis_result") and st.session_state.get("analysis_context", "").startswith("PDF"):
+        st.markdown("---")
+        render_analysis_results(st.session_state["analysis_result"])
+
+# ──────────────────────────────────────────────────────────────
+# ANA İÇERİK — MOD 4: PORTFÖY TARAMA
+# ──────────────────────────────────────────────────────────────
+
+elif mode == "Portföy Tarama":
+    st.markdown('<div class="sq-card-label">PORTFÖY GENELİ TARAMA</div>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">Tüm kayıtlı şirketlerin ESG risk analizini tek tıkla çalıştırın.</p>', unsafe_allow_html=True)
+
+    if st.button("▸  TÜM ŞİRKETLERİ TARA"):
+        with st.spinner("Portföy taranıyor…"):
             summary = analyzer.get_portfolio_summary()
-
         st.session_state.portfolio_summary = summary
         st.session_state.portfolio_done = True
+        st.session_state.watchlist_summary = summary
 
     if st.session_state.get("portfolio_done"):
         summary = st.session_state.portfolio_summary
         results = summary["results"]
+        heatmap_data = analyzer.get_heatmap_data()
 
-        # Özet kartlar
-        sum_col1, sum_col2, sum_col3, sum_col4 = st.columns(4)
-        with sum_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>Toplam Şirket</h3>
-                <div class="value">{summary['total_companies']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with sum_col2:
-            st.markdown(f"""
-            <div class="metric-card" style="border-left-color: {THEME['accent_blue']};">
-                <h3>Ort. Risk Skoru</h3>
-                <div class="value">{summary['avg_risk_score']:.1f}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with sum_col3:
-            st.markdown(f"""
-            <div class="metric-card" style="border-left-color: {THEME['accent_orange']};">
-                <h3>Yüksek Risk</h3>
-                <div class="value">{summary['high_risk_count']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with sum_col4:
-            st.markdown(f"""
-            <div class="metric-card" style="border-left-color: {THEME['accent_red']};">
-                <h3>Maks. Risk</h3>
-                <div class="value">{summary['max_risk_score']:.1f}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("TOPLAM ŞİRKET", summary["total_companies"])
+        s2.metric("ORT. RİSK", f"{summary['avg_risk_score']:.1f}")
+        s3.metric("YÜKSEK RİSK", summary["high_risk_count"])
+        s4.metric("MAKS. RİSK", f"{summary['max_risk_score']:.1f}")
 
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="sq-card-label">ANOMALİ ISI HARİTASI · ŞİRKET × KATEGORİ</div>', unsafe_allow_html=True)
+        st.plotly_chart(create_heatmap_chart(heatmap_data), use_container_width=True)
 
-        # Karşılaştırma grafiği
-        st.markdown("### 📈 Şirket Risk Karşılaştırması")
-        fig = create_comparison_chart(results)
-        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="sq-card-label">ŞİRKET RİSK KARŞILAŞTIRMASI</div>', unsafe_allow_html=True)
+        st.plotly_chart(create_comparison_chart(results), use_container_width=True)
 
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-
-        # Detaylı tablo
-        st.markdown("### 📋 Detaylı Sonuçlar")
-        table_data = []
-        for r in results:
-            table_data.append({
-                "Şirket": r["company_name"],
-                "BIST": r["bist_code"],
-                "Kategori": r["category"],
-                "Risk Skoru": f"{r['risk_score']:.1f}",
-                "Anomali": r["anomaly_status"],
-                "Benzerlik": f"{r['similarity']['similarity']:.2%}",
-                "Duygu Boşluğu": f"{r['sentiment']['sentiment_gap']:.2f}",
-            })
+        table_data = [{
+            "Şirket": r["company_name"],
+            "BIST": r["bist_code"],
+            "Kategori": r["category"],
+            "Risk": f"{r['risk_score']:.1f}",
+            "Anomali": r["anomaly_status"],
+            "Benzerlik": f"{r['similarity']['similarity']:.2%}",
+        } for r in results]
         st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
 
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            st.download_button(
+                "Sonuçları CSV İndir",
+                data=pd.DataFrame(table_data).to_csv(index=False, encoding="utf-8-sig"),
+                file_name=f"sustainquant_portfolio_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with dl2:
+            try:
+                portfolio_pdf = build_portfolio_pdf(summary)
+                st.download_button(
+                    "📄  Jüri PDF Özeti İndir",
+                    data=portfolio_pdf,
+                    file_name=f"sustainquant_portfolio_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            except Exception as e:
+                st.caption(f"PDF: {e}")
 
-        # Her şirket için rapor çıktıları
-        st.markdown("### 📝 Şirket Bazlı Raporlar")
         for r in results:
-            with st.expander(f"{'🟢' if r['risk_score'] <= 25 else '🟡' if r['risk_score'] <= 50 else '🔴'} {r['company_name']} – {r['category']} (Risk: {r['risk_score']:.1f})"):
-                st.markdown(f"""
-                <div class="report-output">{r['formatted_report']}</div>
-                """, unsafe_allow_html=True)
+            with st.expander(f"{r['company_name']} — {r['category']} (Risk: {r['risk_score']:.1f})"):
+                render_analysis_results(r)
 
-        # CSV dışa aktarma
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-        csv_df = pd.DataFrame(table_data)
-        st.download_button(
-            label="📥 Sonuçları CSV Olarak İndir",
-            data=csv_df.to_csv(index=False, encoding="utf-8-sig"),
-            file_name=f"sustainquant_portfolio_analiz_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
-            use_container_width=True,
+# ──────────────────────────────────────────────────────────────
+# ANA İÇERİK — MOD 5: JÜRİ DEMO
+# ──────────────────────────────────────────────────────────────
+
+elif mode == "Jüri Demo":
+    st.markdown('<div class="sq-card-label">JÜRİ DEMO SENARYOSU · 30 SANİYE</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
+        '3 flagship şirket için scriptli canlı sunum akışı: Tüpraş → ASELSAN → Ford Otosan.</p>',
+        unsafe_allow_html=True,
+    )
+
+    if "demo_step" not in st.session_state:
+        st.session_state.demo_step = 0
+    if "demo_results" not in st.session_state:
+        st.session_state.demo_results = []
+
+    dc1, dc2, dc3 = st.columns(3)
+    with dc1:
+        if st.button("▸  DEMO BAŞLAT", type="primary", use_container_width=True):
+            st.session_state.demo_step = 1
+            st.session_state.demo_results = []
+            st.rerun()
+    with dc2:
+        if st.button("▸  SONRAKİ ADIM", use_container_width=True, disabled=st.session_state.demo_step == 0):
+            if st.session_state.demo_step < len(DEMO_SCRIPT):
+                st.session_state.demo_step += 1
+            st.rerun()
+    with dc3:
+        if st.button("▸  TÜM DEMOYU ÇALIŞTIR", use_container_width=True):
+            with st.spinner("3 şirket analiz ediliyor…"):
+                st.session_state.demo_results = []
+                for step in DEMO_SCRIPT:
+                    company = step["company"]
+                    rec = next(r for r in get_esg_dataset() if r["sirket_adi"] == company)
+                    st.session_state.demo_results.append(analyzer.analyze_record(rec))
+                st.session_state.demo_step = len(DEMO_SCRIPT)
+            st.rerun()
+
+    for i, step in enumerate(DEMO_SCRIPT):
+        active = i < st.session_state.demo_step
+        icon = "✅" if active else "⏳"
+        st.markdown(
+            f'<div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:10px;'
+            f'padding:14px 18px;margin-bottom:10px;opacity:{"1" if active else "0.5"}">'
+            f'<span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#14E08A">'
+            f'ADIM {step["step"]}</span> {icon} <b>{step["title"]}</b><br>'
+            f'<span style="font-size:12px;color:#8AA0B4">{step["narration"]}</span></div>',
+            unsafe_allow_html=True,
         )
+
+    if st.session_state.demo_step > 0 and st.session_state.demo_step <= len(DEMO_SCRIPT):
+        if len(st.session_state.demo_results) < st.session_state.demo_step:
+            step = DEMO_SCRIPT[st.session_state.demo_step - 1]
+            with st.spinner(f"{step['company']} analiz ediliyor…"):
+                rec = next(r for r in get_esg_dataset() if r["sirket_adi"] == step["company"])
+                result = analyzer.analyze_record(rec)
+                if len(st.session_state.demo_results) < st.session_state.demo_step:
+                    st.session_state.demo_results.append(result)
+
+    if st.session_state.demo_results:
+        st.markdown("---")
+        tabs = st.tabs([f"{r['company_name']} ({r['risk_score']:.0f})" for r in st.session_state.demo_results])
+        for tab, result in zip(tabs, st.session_state.demo_results):
+            with tab:
+                render_analysis_results(result)
 
 
 # ──────────────────────────────────────────────────────────────
 # FOOTER
 # ──────────────────────────────────────────────────────────────
 
-st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-st.markdown(f"""
-<div style="text-align: center; color: {THEME['text_secondary']}; font-size: 0.8rem; padding: 20px 0;">
-    <b>SustainaQuant AI</b> | Teknofest Finansal Teknolojiler Yarışması 2026<br>
-    Takım ID: 918431 | NLP Tabanlı ESG Risk & Yeşil Aklama Tespit Motoru<br>
-    <span style="color: {THEME['accent_green']};">Powered by FinBERT + BERTürk + Cosine Similarity</span>
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("""
+<div style="text-align:center;color:#5C7185;font-size:11px;padding:16px 0;border-top:1px solid #16273B">
+  <b style="color:#8AA0B4">SustainaQuant AI</b> · Teknofest Finansal Teknolojiler 2026 · Takım ID: 918431<br>
+  <span style="color:#14E08A">FinBERT + BERTürk + Kosinüs Benzerliği · Say-Do Gap Algoritması</span>
 </div>
 """, unsafe_allow_html=True)

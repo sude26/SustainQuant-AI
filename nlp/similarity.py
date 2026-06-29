@@ -18,7 +18,7 @@ from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nlp.models import SustainaQuantNLP
+from nlp.models import create_nlp_engine
 
 
 class CosineSimilarityEngine:
@@ -27,8 +27,8 @@ class CosineSimilarityEngine:
     Rapordaki "Söylem-Eylem Boşluğu" algoritmasının matematiksel çekirdeği.
     """
 
-    def __init__(self, nlp_model: SustainaQuantNLP = None):
-        self.nlp = nlp_model or SustainaQuantNLP()
+    def __init__(self, nlp_model=None):
+        self.nlp = nlp_model or create_nlp_engine()
 
     def compute_vectors(self, vec_a: np.ndarray, vec_b: np.ndarray) -> float:
         """

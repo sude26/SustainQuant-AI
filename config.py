@@ -35,6 +35,10 @@ SENTENCE_TRANSFORMER_TR = "emrecan/bert-base-turkish-cased-mean-nli-stsb-tr"
 # Model cache dizini
 MODEL_CACHE_DIR = BASE_DIR / ".model_cache"
 
+# NLP modu: "lightweight" = internet gerektirmez (varsayılan, hızlı)
+#            "full"        = FinBERT + Sentence Transformers (internet gerekir)
+NLP_MODE = "lightweight"
+
 # ──────────────────────────────────────────────────────────────
 # MASTER SYSTEM PROMPT
 # ──────────────────────────────────────────────────────────────
@@ -152,16 +156,16 @@ DASHBOARD_TITLE = "📊 SustainaQuant AI | ESG Risk Terminali"
 DASHBOARD_PAGE_TITLE = "SustainaQuant AI"
 DASHBOARD_LAYOUT = "wide"
 
-# Kurumsal koyu tema renkleri
+# Kurumsal koyu tema renkleri (B2B Finans Terminali — IBM Plex paleti)
 THEME = {
-    "bg_primary": "#0e1117",
-    "bg_secondary": "#1e2530",
-    "bg_card": "#161b22",
-    "accent_green": "#00ff88",
+    "bg_primary": "#08111E",
+    "bg_secondary": "#0B1626",
+    "bg_card": "#0E1C2E",
+    "accent_green": "#14E08A",
     "accent_blue": "#3b82f6",
-    "accent_orange": "#f59e0b",
-    "accent_red": "#ff0054",
-    "text_primary": "#ffffff",
-    "text_secondary": "#8b949e",
-    "border": "#30363d",
+    "accent_orange": "#FFB23E",
+    "accent_red": "#FF5C5C",
+    "text_primary": "#E8EEF4",
+    "text_secondary": "#8AA0B4",
+    "border": "#1B2E44",
 }

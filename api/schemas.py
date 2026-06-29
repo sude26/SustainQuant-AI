@@ -66,6 +66,20 @@ class SentimentDetail(BaseModel):
     interpretation: str = Field(..., description="Duygu karşılaştırma yorumu")
 
 
+class AnomalyItem(BaseModel):
+    """Tekil anomali kartı."""
+    title: str = Field(..., description="Anomali başlığı")
+    description: str = Field(..., description="Anomali açıklaması")
+    severity: str = Field(..., description="Şiddet: high | med | low")
+
+
+class ESGBreakdown(BaseModel):
+    """E/S/G kırılım skorları."""
+    environmental: int = Field(..., description="Çevresel skor (0-100)")
+    social: int = Field(..., description="Sosyal skor (0-100)")
+    governance: int = Field(..., description="Yönetişim skoru (0-100)")
+
+
 class AnalysisResponse(BaseModel):
     """
     Tekil analiz yanıtı.
@@ -81,6 +95,8 @@ class AnalysisResponse(BaseModel):
     formatted_report: str = Field(..., description="Master System Prompt formatında tam rapor")
     similarity: Optional[SimilarityDetail] = None
     sentiment: Optional[SentimentDetail] = None
+    esg_breakdown: Optional[ESGBreakdown] = None
+    anomalies: List[AnomalyItem] = Field(default_factory=list)
     source: str = ""
     analyzed_at: str = ""
 
@@ -123,3 +139,18 @@ class HealthResponse(BaseModel):
     models_loaded: bool = False
     database_ready: bool = False
     timestamp: str = ""
+
+
+class HeatmapCell(BaseModel):
+    """Isı haritası hücresi."""
+    company_name: str
+    category: str
+    risk_score: float
+
+
+class HeatmapResponse(BaseModel):
+    """Portföy anomali ısı haritası verisi."""
+    companies: List[str]
+    categories: List[str]
+    matrix: List[List[Optional[float]]]
+    cells: List[HeatmapCell]

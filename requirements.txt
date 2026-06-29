@@ -21,3 +21,7 @@ pydantic>=2.0
 
 # ── Yardımcı ────────────────────────────────
 rich
+
+# ── Faz A: PDF & Rapor ─────────────────────
+pypdf
+fpdf2

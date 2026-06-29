@@ -10,6 +10,8 @@ Rapor §3: "Türkçe doğal dil işleme modelleri (BERTürk) ile entegre"
 
 import numpy as np
 from pathlib import Path
+import threading
+import time
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -19,6 +21,44 @@ from config import (
     SENTENCE_TRANSFORMER_TR,
     MODEL_CACHE_DIR,
 )
+
+_LOAD_LOCK = threading.Lock()
+
+
+def _load_sentence_transformer(model_id: str):
+    """HuggingFace indirme hatalarına karşı yeniden denemeli model yükler."""
+    from sentence_transformers import SentenceTransformer
+
+    last_error = None
+    for attempt in range(3):
+        try:
+            return SentenceTransformer(
+                model_id,
+                cache_folder=str(MODEL_CACHE_DIR),
+            )
+        except RuntimeError as exc:
+            last_error = exc
+            if "client has been closed" in str(exc).lower() and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+    if last_error:
+        raise last_error
+    raise RuntimeError(f"Model yüklenemedi: {model_id}")
+
+
+def create_nlp_engine():
+    """Konfigürasyona göre NLP motoru oluşturur."""
+    try:
+        from config import NLP_MODE
+    except ImportError:
+        NLP_MODE = "lightweight"
+
+    if NLP_MODE == "lightweight":
+        from nlp.lightweight import LightweightNLP
+        return LightweightNLP()
+
+    return SustainaQuantNLP()
 
 
 class SustainaQuantNLP:
@@ -37,34 +77,30 @@ class SustainaQuantNLP:
         MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     @property
-    def sentence_model_tr(self):
-        """Türkçe Sentence Transformer – Lazy loading."""
-        if self._sentence_model_tr is None:
-            print(f"📥 Türkçe model yükleniyor: {SENTENCE_TRANSFORMER_TR}...")
-            from sentence_transformers import SentenceTransformer
-            try:
-                self._sentence_model_tr = SentenceTransformer(
-                    SENTENCE_TRANSFORMER_TR,
-                    cache_folder=str(MODEL_CACHE_DIR)
-                )
-                print("✅ Türkçe model hazır.")
-            except Exception as e:
-                print(f"⚠️ Türkçe model yüklenemedi ({e}), fallback: {SENTENCE_TRANSFORMER_EN}")
-                self._sentence_model_tr = self.sentence_model_en
-        return self._sentence_model_tr
-
-    @property
     def sentence_model_en(self):
         """İngilizce/Genel Sentence Transformer – Lazy loading."""
         if self._sentence_model_en is None:
-            print(f"📥 Genel model yükleniyor: {SENTENCE_TRANSFORMER_EN}...")
-            from sentence_transformers import SentenceTransformer
-            self._sentence_model_en = SentenceTransformer(
-                SENTENCE_TRANSFORMER_EN,
-                cache_folder=str(MODEL_CACHE_DIR)
-            )
-            print("✅ Genel model hazır.")
+            with _LOAD_LOCK:
+                if self._sentence_model_en is None:
+                    print(f"📥 Genel model yükleniyor: {SENTENCE_TRANSFORMER_EN}...")
+                    self._sentence_model_en = _load_sentence_transformer(SENTENCE_TRANSFORMER_EN)
+                    print("✅ Genel model hazır.")
         return self._sentence_model_en
+
+    @property
+    def sentence_model_tr(self):
+        """Türkçe Sentence Transformer – Lazy loading (gerekirse EN modele düşer)."""
+        if self._sentence_model_tr is None:
+            with _LOAD_LOCK:
+                if self._sentence_model_tr is None:
+                    print(f"📥 Türkçe model yükleniyor: {SENTENCE_TRANSFORMER_TR}...")
+                    try:
+                        self._sentence_model_tr = _load_sentence_transformer(SENTENCE_TRANSFORMER_TR)
+                        print("✅ Türkçe model hazır.")
+                    except Exception as e:
+                        print(f"⚠️ Türkçe model yüklenemedi ({e}), fallback: {SENTENCE_TRANSFORMER_EN}")
+                        self._sentence_model_tr = self.sentence_model_en
+        return self._sentence_model_tr
 
     @property
     def finbert_pipeline(self):
@@ -183,17 +219,25 @@ class SustainaQuantNLP:
         Dashboard veya API başlatılırken çağrılır.
         """
         print("🔥 Model ısınma (warmup) başlatılıyor...")
-        _ = self.sentence_model_tr
-        _ = self.sentence_model_en
-        _ = self.finbert_pipeline
+        with _LOAD_LOCK:
+            _ = self.sentence_model_en
+            if self._sentence_model_tr is None:
+                try:
+                    self._sentence_model_tr = _load_sentence_transformer(SENTENCE_TRANSFORMER_TR)
+                except Exception:
+                    self._sentence_model_tr = self._sentence_model_en
+            try:
+                _ = self.finbert_pipeline
+            except Exception as exc:
+                print(f"⚠️ FinBERT warmup atlandı: {exc}")
 
-        # Test embedding
         test_vec = self.embed("Test metni", lang="tr")
         print(f"   Embedding boyutu: {test_vec.shape}")
 
-        self._is_initialized = True
-        print("✅ Tüm modeller hazır ve yüklendi.")
-        return True
+        self._is_initialized = self._sentence_model_en is not None
+        if self._is_initialized:
+            print("✅ Embedding modelleri hazır.")
+        return self._is_initialized
 
     @property
     def is_ready(self):

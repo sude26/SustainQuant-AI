@@ -6,7 +6,8 @@ Tek komutla tüm sistemi başlatan entry point.
 Kullanım:
     python run.py init       → Veritabanı kurulumu + veri yükleme
     python run.py api        → FastAPI sunucusu (uvicorn)
-    python run.py dashboard  → Streamlit dashboard
+    python run.py dashboard  → Streamlit dashboard (website)
+    python run.py web        → Dashboard kısayolu
     python run.py analyze    → Hızlı CLI analizi (3 şirketi tarar)
     python run.py demo       → Teknofest demo modu (API + Dashboard bilgisi)
 """
@@ -23,6 +24,17 @@ if sys.platform == "win32":
 # Proje kök dizinini ekle
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
+
+
+def _use_project_venv():
+    """Varsa proje sanal ortamındaki Python'u kullan (Anaconda sorunlarını önler)."""
+    if VENV_PYTHON.exists() and Path(sys.executable).resolve() != VENV_PYTHON.resolve():
+        os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), *sys.argv])
+
+
+_use_project_venv()
 
 
 def cmd_init():
@@ -82,12 +94,69 @@ def cmd_api():
     )
 
 
+def cmd_setup():
+    """Sanal ortam oluşturur ve bağımlılıkları kurar."""
+    import subprocess
+    import shutil
+
+    if not VENV_PYTHON.exists():
+        print("📦 Sanal ortam oluşturuluyor (.venv)...")
+        py = shutil.which("python3") or sys.executable
+        subprocess.run([py, "-m", "venv", str(PROJECT_ROOT / ".venv")], check=True)
+
+    print("📥 Bağımlılıklar kuruluyor (birkaç dakika sürebilir)...")
+    subprocess.run(
+        [str(VENV_PYTHON), "-m", "pip", "install", "-r", "requirements.txt"],
+        cwd=str(PROJECT_ROOT),
+        check=True,
+    )
+    print("✅ Kurulum tamam! Şimdi çalıştırın: python run.py web")
+
+
+def cmd_download_models():
+    """
+    Tam NLP modelleri — YALNIZCA isteğe bağlı.
+    Demo için gerekmez; lightweight mod zaten çalışır.
+    """
+    if "--full" not in sys.argv:
+        print("=" * 60)
+        print("ℹ️  BU KOMUTA GEREK YOK — Demo için Lite mod yeterli")
+        print("=" * 60)
+        print()
+        print("Siteyi açmak için şunu çalıştırın:")
+        print()
+        print("    python run.py web")
+        print()
+        print("Sonra tarayıcıda:  http://localhost:8501")
+        print()
+        print("Tam FinBERT modellerini indirmek istiyorsanız (isteğe bağlı):")
+        print("    python run.py models --full")
+        print()
+        return
+
+    from nlp.models import SustainaQuantNLP
+
+    print("🧠 Tam NLP modelleri indiriliyor… (2-10 dk, stabil internet gerekir)")
+    print("   Takılırsa Ctrl+C — Lite mod zaten çalışıyor.")
+    nlp = SustainaQuantNLP()
+    ok = nlp.warmup()
+    if ok:
+        print("✅ Tam modeller hazır.")
+        print("   config.py içinde NLP_MODE = 'full' yapın.")
+    else:
+        print("⚠️ İndirme tamamlanamadı. Lite mod kullanın: python run.py web")
+
+
 def cmd_dashboard():
     """Streamlit dashboard'unu başlatır."""
     import subprocess
     import os
+    from config import NLP_MODE
+
     print("📊 Dashboard başlatılıyor...")
     print("   URL: http://localhost:8501")
+    if NLP_MODE == "lightweight":
+        print("   Mod: Lite (internet gerekmez, hemen açılır)")
     print()
     
     # Streamlit'in ilk kurulum e-posta sorusunu otomatik atlamak için
@@ -98,7 +167,8 @@ def cmd_dashboard():
         sys.executable, "-m", "streamlit", "run", "app.py",
         "--server.port", "8501",
         "--browser.gatherUsageStats", "false",
-        "--server.headless", "true"
+        "--server.headless", "true",
+        "--server.address", "localhost",
     ], cwd=str(PROJECT_ROOT), env=env)
 
 
@@ -152,7 +222,9 @@ def main():
         print("  python run.py init       Veritabanı kurulumu")
         print("  python run.py analyze    CLI analizi")
         print("  python run.py api        FastAPI sunucusu")
-        print("  python run.py dashboard  Streamlit dashboard")
+        print("  python run.py setup      İlk kurulum (bir kez)")
+        print("  python run.py web        ★ Websiteyi aç (bunu kullanın)")
+        print("  python run.py models     Bilgi (indirme yapmaz)")
         print("  python run.py demo       Demo bilgileri")
         sys.exit(1)
 
@@ -160,9 +232,13 @@ def main():
 
     commands = {
         "init": cmd_init,
+        "setup": cmd_setup,
+        "models": cmd_download_models,
+        "download-models": cmd_download_models,
         "analyze": cmd_analyze,
         "api": cmd_api,
         "dashboard": cmd_dashboard,
+        "web": cmd_dashboard,
         "demo": cmd_demo,
     }
 

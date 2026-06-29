@@ -22,7 +22,7 @@ from config import (
     SIMILARITY_WEIGHT,
     SENTIMENT_WEIGHT,
 )
-from nlp.models import SustainaQuantNLP
+from nlp.models import SustainaQuantNLP, create_nlp_engine
 from nlp.similarity import CosineSimilarityEngine
 from nlp.sentiment import SentimentAnalyzer
 from data.esg_dataset import get_esg_dataset
@@ -42,8 +42,8 @@ class GreenwashingAnalyzer:
     6. Anomali sınıflandır ve rapor formatında çıktı üret
     """
 
-    def __init__(self, nlp_model: SustainaQuantNLP = None):
-        self.nlp = nlp_model or SustainaQuantNLP()
+    def __init__(self, nlp_model=None):
+        self.nlp = nlp_model or create_nlp_engine()
         self.similarity_engine = CosineSimilarityEngine(self.nlp)
         self.sentiment_analyzer = SentimentAnalyzer(self.nlp)
         self.system_prompt = MASTER_SYSTEM_PROMPT
@@ -132,6 +132,75 @@ class GreenwashingAnalyzer:
 
         return "; ".join(triggers) if triggers else "Düzenli periyodik izleme yeterli."
 
+    def _severity_from_risk(self, risk_score: float) -> str:
+        if risk_score > 50:
+            return "high"
+        if risk_score > 25:
+            return "med"
+        return "low"
+
+    def generate_esg_breakdown(self, gap_result: dict, record: dict) -> dict:
+        """E/S/G kırılım skorlarını üretir (yüksek skor = düşük yeşil aklama riski)."""
+        sim_risk = gap_result["combined_analysis"]["similarity_risk"]
+        sent_risk = gap_result["combined_analysis"]["sentiment_risk"]
+        risk = gap_result["risk_score"]
+        cat = record.get("esg_kategorisi", record.get("category", "")).lower()
+
+        environmental = round(max(0, min(100, 100 - sim_risk)), 0)
+        social = round(max(0, min(100, 100 - sent_risk)), 0)
+        governance = round(max(0, min(100, 100 - risk * 0.85)), 0)
+
+        env_keys = ("enerji", "çevre", "emisyon", "su", "ges", "yenilenebilir", "karbon")
+        soc_keys = ("sosyal", "iş güvenliği", "çalışan", "iş sağlığı")
+        if any(k in cat for k in env_keys):
+            environmental = round((environmental + (100 - risk)) / 2, 0)
+        if any(k in cat for k in soc_keys):
+            social = round((social + (100 - risk)) / 2, 0)
+
+        return {
+            "environmental": int(environmental),
+            "social": int(social),
+            "governance": int(governance),
+        }
+
+    def generate_anomalies(self, gap_result: dict, record: dict,
+                           summary: str, trigger: str) -> list:
+        """Çoklu anomali kartları listesi üretir."""
+        anomalies = []
+        risk = gap_result["risk_score"]
+        sev = self._severity_from_risk(risk)
+
+        anomalies.append({
+            "title": gap_result["anomaly_status"],
+            "description": summary,
+            "severity": sev,
+        })
+
+        sent = gap_result["sentiment_result"]
+        if sent["sentiment_gap"] > 0.25:
+            anomalies.append({
+                "title": "Duygu Uyumsuzluğu",
+                "description": sent["interpretation"],
+                "severity": "high" if sent["sentiment_gap"] > 0.4 else "med",
+            })
+
+        sim = gap_result["similarity_result"]
+        if sim["similarity"] < 0.55:
+            anomalies.append({
+                "title": "Anlamsal Sapma",
+                "description": sim["interpretation"],
+                "severity": "high" if sim["similarity"] < 0.4 else "med",
+            })
+
+        if trigger and trigger != "Düzenli periyodik izleme yeterli.":
+            anomalies.append({
+                "title": "İzleme Tetikleyicisi",
+                "description": trigger,
+                "severity": "med",
+            })
+
+        return anomalies
+
     def calculate_say_do_gap(self, soylem: str, eylem: str) -> dict:
         """
         Söylem-Eylem Boşluğu (Say-Do Gap) algoritması.
@@ -219,6 +288,9 @@ class GreenwashingAnalyzer:
             record
         )
 
+        esg_breakdown = self.generate_esg_breakdown(gap_result, record)
+        anomalies = self.generate_anomalies(gap_result, record, summary, trigger)
+
         # Master System Prompt formatında rapor
         formatted_report = REPORT_TEMPLATE.format(
             company_name=record["sirket_adi"],
@@ -242,6 +314,8 @@ class GreenwashingAnalyzer:
             "summary": summary,
             "trigger": trigger,
             "formatted_report": formatted_report,
+            "esg_breakdown": esg_breakdown,
+            "anomalies": anomalies,
             "source": record.get("kaynak", ""),
             "analyzed_at": datetime.now().isoformat(),
         }
@@ -335,4 +409,43 @@ class GreenwashingAnalyzer:
             "max_risk_score": max(risk_scores) if risk_scores else 0,
             "min_risk_score": min(risk_scores) if risk_scores else 0,
             "results": results,
+        }
+
+    def get_heatmap_data(self) -> dict:
+        """
+        Şirket × ESG kategori risk matrisi (Anomali Isı Haritası için).
+        """
+        results = self.analyze_all()
+        companies = sorted({r["company_name"] for r in results})
+        categories = sorted({r["category"] for r in results})
+
+        lookup = {(r["company_name"], r["category"]): r["risk_score"] for r in results}
+
+        # En yüksek riskli şirket üstte
+        max_risk = {}
+        for r in results:
+            name = r["company_name"]
+            max_risk[name] = max(max_risk.get(name, 0), r["risk_score"])
+        companies = sorted(companies, key=lambda c: max_risk.get(c, 0), reverse=True)
+        matrix = []
+        cells = []
+
+        for company in companies:
+            row = []
+            for category in categories:
+                score = lookup.get((company, category))
+                row.append(score)
+                if score is not None:
+                    cells.append({
+                        "company_name": company,
+                        "category": category,
+                        "risk_score": score,
+                    })
+            matrix.append(row)
+
+        return {
+            "companies": companies,
+            "categories": categories,
+            "matrix": matrix,
+            "cells": cells,
         }
