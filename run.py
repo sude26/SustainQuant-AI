@@ -147,11 +147,43 @@ def cmd_download_models():
         print("⚠️ İndirme tamamlanamadı. Lite mod kullanın: python run.py web")
 
 
+DASHBOARD_PORT = 8501
+
+
+def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
+
+
+def cmd_stop():
+    """Arka planda kalan Streamlit sürecini durdurur."""
+    import subprocess
+    import time
+
+    print("🛑 Eski dashboard süreci kapatılıyor...")
+    subprocess.run(["pkill", "-f", "streamlit run app.py"], check=False)
+    time.sleep(1)
+    if _port_in_use(DASHBOARD_PORT):
+        print(f"⚠️  Port {DASHBOARD_PORT} hâlâ dolu. Bilgisayarı yeniden başlatmayı deneyin.")
+    else:
+        print(f"✅ Port {DASHBOARD_PORT} serbest. Şimdi: python run.py web")
+
+
 def cmd_dashboard():
     """Streamlit dashboard'unu başlatır."""
     import subprocess
     import os
     from config import NLP_MODE
+
+    if _port_in_use(DASHBOARD_PORT):
+        print("⚠️  Port 8501 zaten kullanımda — dashboard muhtemelen ZATEN AÇIK.")
+        print("   Tarayıcıda dene:  http://localhost:8501")
+        print("   Yeniden başlatmak için:")
+        print("       python run.py stop")
+        print("       python run.py web")
+        return
 
     print("📊 Dashboard başlatılıyor...")
     print("   URL: http://localhost:8501")
@@ -159,6 +191,7 @@ def cmd_dashboard():
         print("   Mod: Lite (internet gerekmez, hemen açılır)")
     else:
         print("   Mod: Full FinBERT")
+    print("   (Terminal açık kalsın — kapatırsan site kapanır)")
     print()
     
     env = os.environ.copy()
@@ -166,7 +199,7 @@ def cmd_dashboard():
     
     subprocess.run([
         sys.executable, "-m", "streamlit", "run", "app.py",
-        "--server.port", "8501",
+        "--server.port", str(DASHBOARD_PORT),
         "--browser.gatherUsageStats", "false",
         "--server.headless", "true",
         "--server.address", "localhost",
@@ -264,6 +297,7 @@ def main():
         print("  python run.py api        FastAPI sunucusu")
         print("  python run.py setup      İlk kurulum (bir kez)")
         print("  python run.py web        ★ Websiteyi aç (bunu kullanın)")
+        print("  python run.py stop       Dashboard'u kapat (port 8501)")
         print("  python run.py all        ★ API + Dashboard birlikte")
         print("  python run.py models     Bilgi (indirme yapmaz)")
         print("  python run.py demo       Demo bilgileri")
@@ -280,6 +314,7 @@ def main():
         "api": cmd_api,
         "dashboard": cmd_dashboard,
         "web": cmd_dashboard,
+        "stop": cmd_stop,
         "all": cmd_all,
         "demo": cmd_demo,
     }

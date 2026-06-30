@@ -28,7 +28,11 @@ from config import (
 )
 NLP_MODE = getattr(sq_config, "NLP_MODE", "lightweight")
 from data.esg_dataset import get_esg_dataset, get_companies, get_company_data
-from data.pdf_extractor import extract_text_from_pdf, extract_esg_claims
+from data.pdf_extractor import (
+    detect_company_from_pdf,
+    extract_esg_claims,
+    extract_text_from_pdf,
+)
 from data.demo_scenario import DEMO_SCRIPT
 from services.jury_report import build_analysis_pdf, build_portfolio_pdf
 from services.live_verification import fetch_live_context, build_enriched_record
@@ -339,6 +343,55 @@ def sync_text_inputs(ctx_key: str, soylem: str, eylem: str):
         st.session_state["sq_eylem"] = eylem
 
 
+def sync_pdf_inputs(file_ctx: str | None, company_ctx: str, soylem: str | None, eylem: str):
+    """PDF modunda söylem/eylem alanlarını session state ile senkronize eder."""
+    if file_ctx and st.session_state.get("_pdf_file_ctx") != file_ctx:
+        st.session_state["_pdf_file_ctx"] = file_ctx
+        st.session_state["pdf_soylem"] = soylem or ""
+    if st.session_state.get("_pdf_company_ctx") != company_ctx:
+        st.session_state["_pdf_company_ctx"] = company_ctx
+        st.session_state["pdf_eylem"] = eylem
+
+
+def resolve_pdf_eylem(record: dict | None) -> tuple[str, str]:
+    """Seçili şirket için doğrulama (eylem) metnini dataset + canlı kaynaktan üretir."""
+    if not record:
+        return "", ""
+    eylem = record.get("eylem", "")
+    source_label = f"{record.get('kaynak', 'Dataset')} · {record.get('eylem_tarihi', '')}"
+    if record.get("bist_kodu"):
+        try:
+            from services.live_verification import fetch_live_context
+            live = fetch_live_context(
+                company_name=record["sirket_adi"],
+                bist_code=record["bist_kodu"],
+                category=record.get("esg_kategorisi", ""),
+                dataset_eylem=eylem,
+                include_kap=True,
+                include_news=True,
+            )
+            if live.get("merged_eylem"):
+                eylem = live["merged_eylem"]
+                verification = live.get("verification") or {}
+                src_count = verification.get("source_count", 0)
+                source_label = f"Dataset + KAP/haber · {src_count} kaynak"
+        except Exception:
+            pass
+    return eylem, source_label
+
+
+def render_jury_presenter_notes():
+    """Sunum notları — sidebar'da, jüri ekranında görünmez."""
+    from data.demo_scenario import DEMO_INTRO, DEMO_SCRIPT
+
+    with st.expander("📝 Sunum notları (sadece prova)"):
+        st.caption("Bu bölüm ekran paylaşımında jüriye gösterilmez; prova için.")
+        st.markdown(f"**Giriş:** {DEMO_INTRO}")
+        for step in DEMO_SCRIPT:
+            line = step.get("jury_line", step["narration"])
+            st.markdown(f"**Adım {step['step']} — {step['company']}:** {line}")
+
+
 def run_company_analysis(analyzer, mode: str, record, soylem: str, eylem: str,
                          default_company: str, default_category: str) -> dict:
     """Analiz çalıştırır ve sonucu session state'e yazar."""
@@ -451,7 +504,7 @@ def render_jury_demo():
     render_html(f"""
     <div style="background:#0A1424;border:1px solid #1B2E44;border-radius:12px;padding:18px 22px;margin-bottom:20px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;color:#14E08A;margin-bottom:8px">
-        JÜRİYE SÖYLENECEK GİRİŞ
+        SAY-DO GAP · CANLI DEMO
       </div>
       <p style="font-size:14px;line-height:1.65;color:#CFE0EC;margin:0">{DEMO_INTRO}</p>
     </div>
@@ -498,18 +551,13 @@ def render_jury_demo():
         active = i == len(st.session_state.demo_results) - 1 and st.session_state.demo_results
         icon = "✅" if done else "⏳"
         opacity = "1" if done or active else "0.45"
-        jury_line = step.get("jury_line", step["narration"])
         render_html(f"""
         <div style="background:#0E1C2E;border:1px solid {'#14E08A' if active else '#1B2E44'};
                     border-radius:10px;padding:14px 18px;margin-bottom:10px;opacity:{opacity}">
           <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#14E08A">
             ADIM {step['step']}/{total_steps}</span> {icon}
           <b style="color:#E8EEF4"> {step['title']}</b><br>
-          <span style="font-size:12px;color:#8AA0B4">{step['narration']}</span>
-          <div style="margin-top:10px;padding:10px 12px;background:#0A1424;border-radius:8px;
-                      border-left:3px solid #14E08A;font-size:12px;color:#CFE0EC;line-height:1.55">
-            🎤 <b>Jüriye söyle:</b> {jury_line}
-          </div>
+          <span style="font-size:12px;color:#8AA0B4">{step['hook']}</span>
         </div>
         """)
 
@@ -994,6 +1042,8 @@ with st.sidebar:
 
     render_alerts_sidebar()
     render_methodology_info()
+    if mode == "Jüri Demo":
+        render_jury_presenter_notes()
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f"""
@@ -1236,8 +1286,8 @@ elif mode == "PDF Rapor Yükle":
     st.markdown('<div class="sq-card-label">PDF SÜRDÜRÜLEBİLİRLİK RAPORU YÜKLE</div>', unsafe_allow_html=True)
     st.markdown(
         '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
-        'Şirketin sürdürülebilirlik raporunu yükleyin; söylem metni otomatik çıkarılır. '
-        'Eylem verisi kayıtlı şirket verisinden veya manuel girişten gelir.</p>',
+        'PDF yükleyin → söylem otomatik çıkarılır. Eylem verisi seçili şirket için '
+        'dataset + KAP/haber kaynaklarından doldurulur.</p>',
         unsafe_allow_html=True,
     )
 
@@ -1249,31 +1299,67 @@ elif mode == "PDF Rapor Yükle":
         company_records = get_company_data(selected_company) if selected_company else []
         default_record = company_records[0] if company_records else None
 
-        pdf_soylem = ""
+        pdf_soylem = st.session_state.get("pdf_soylem", "")
+        pdf_meta = ""
+        detected_company = None
+
         if uploaded:
-            with st.spinner("PDF metni çıkarılıyor…"):
-                raw_text = extract_text_from_pdf(uploaded.read())
-                pdf_soylem = extract_esg_claims(raw_text)
-            st.success(f"PDF okundu — {len(raw_text):,} karakter, {len(pdf_soylem):,} karakter ESG özeti")
+            file_bytes = uploaded.getvalue()
+            file_ctx = f"{uploaded.name}_{len(file_bytes)}"
+            if st.session_state.get("_pdf_file_ctx") != file_ctx:
+                with st.spinner("PDF metni çıkarılıyor…"):
+                    raw_text = extract_text_from_pdf(file_bytes)
+                    pdf_soylem = extract_esg_claims(raw_text)
+                    detected_company = detect_company_from_pdf(raw_text, uploaded.name)
+                    st.session_state["_pdf_raw_len"] = len(raw_text)
+                    st.session_state["_pdf_detected_company"] = detected_company
+                st.session_state["_pdf_file_ctx"] = file_ctx
+                st.session_state["pdf_soylem"] = pdf_soylem
+            else:
+                pdf_soylem = st.session_state.get("pdf_soylem", "")
+                detected_company = st.session_state.get("_pdf_detected_company")
+            pdf_meta = (
+                f"PDF okundu — {st.session_state.get('_pdf_raw_len', 0):,} karakter, "
+                f"{len(pdf_soylem):,} karakter ESG özeti"
+            )
+            if detected_company:
+                pdf_meta += f" · Tespit: **{detected_company}**"
+            st.success(pdf_meta)
+
+        if detected_company and selected_company and detected_company != selected_company:
+            st.warning(
+                f"PDF içeriği **{detected_company}** gibi görünüyor; "
+                f"sidebar'da **{selected_company}** seçili. Doğru şirketi seçin."
+            )
+
+        company_ctx = f"pdf_{selected_company or 'none'}"
+        default_eylem, eylem_source = resolve_pdf_eylem(default_record)
+        sync_pdf_inputs(
+            st.session_state.get("_pdf_file_ctx"),
+            company_ctx,
+            pdf_soylem if uploaded else None,
+            default_eylem,
+        )
 
         st.markdown('<div class="sq-card-label">SÖYLEM — PDF\'den çıkarılan iddialar</div>', unsafe_allow_html=True)
         soylem = st.text_area(
-            "", value=pdf_soylem, height=130,
-            placeholder="PDF yükleyin veya metni yapıştırın…",
+            "", height=130,
+            placeholder="PDF yükleyin — iddialar buraya otomatik gelir…",
             label_visibility="collapsed", key="pdf_soylem",
         )
 
         st.markdown('<div class="sq-card-label" style="margin-top:16px">EYLEM — doğrulama verisi</div>', unsafe_allow_html=True)
-        default_eylem = default_record["eylem"] if default_record else ""
+        if eylem_source:
+            st.caption(f"Kaynak: {eylem_source}")
         eylem = st.text_area(
-            "", value=default_eylem, height=130,
-            placeholder="Resmi kaynak / haber metni…",
+            "", height=130,
+            placeholder="Şirket seçildiğinde resmi kaynak verisi buraya gelir…",
             label_visibility="collapsed", key="pdf_eylem",
         )
 
         if st.button("▸  PDF ANALİZİ BAŞLAT", type="primary", use_container_width=True):
-            if not soylem or not eylem:
-                st.error("PDF söylem ve eylem alanları dolu olmalı.")
+            if not (soylem or "").strip() or not (eylem or "").strip():
+                st.error("Önce PDF yükleyin ve sidebar'dan şirket seçin.")
             elif not selected_company:
                 st.error("Lütfen sidebar'dan şirket seçin.")
             else:
@@ -1287,7 +1373,9 @@ elif mode == "PDF Rapor Yükle":
                     }
                     result = analyzer.analyze_record(analysis_record)
                 st.session_state["analysis_result"] = result
+                st.session_state["analysis_context"] = f"PDF_{selected_company}"
                 st.success(f"Analiz tamamlandı — Risk skoru: {result['risk_score']:.0f}/100")
+                st.rerun()
 
     with col2:
         render_watchlist_panel(watchlist_items, pending=watchlist_pending)

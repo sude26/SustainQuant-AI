@@ -32,6 +32,20 @@ def clean_extracted_text(text: str) -> str:
     return text.strip()
 
 
+def detect_company_from_pdf(text: str, filename: str = "") -> str | None:
+    """PDF dosya adı veya metinden şirket adını tahmin eder."""
+    from data.esg_dataset import get_companies
+
+    haystack = f"{filename} {text[:8000]}".lower()
+    for company in get_companies():
+        name = company["sirket_adi"].lower()
+        bist = (company.get("bist_kodu") or "").lower()
+        tokens = [name, bist, name.split()[0]]
+        if any(token and token in haystack for token in tokens):
+            return company["sirket_adi"]
+    return None
+
+
 def extract_esg_claims(text: str, max_chars: int = 2000) -> str:
     """
     Uzun rapordan ESG iddia cümlelerini önceliklendirir.

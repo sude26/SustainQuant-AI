@@ -182,7 +182,7 @@ def get_esg_dataset():
             "eylem_tarihi": "2025-08-05",
             "kaynak": "Çevre Bakanlığı Atık Beyan Sistemi",
             "kaynak_tipi": "Resmi Kurum",
-            "kaynak_url": "https://atiksistemi.csb.gov.tr",
+            "kaynak_url": "https://www.csb.gov.tr",
             "guvenilirlik": "Yüksek",
         },
 
