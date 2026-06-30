@@ -32,13 +32,127 @@ NLP tabanlı ESG Risk ve Yeşil Aklama (Greenwashing) Tespit Motoru — **Teknof
 
 ---
 
+## SUNUM GÜNÜ REHBERİ — Sıfırdan (hiçbir şey açık değilken)
+
+Bilgisayarınız kapalı, Terminal kapalı, site açık değil — jüriye sunum yapacaksanız **bu bölümü takip edin**. Hem siz hem arkadaşınız için geçerli.
+
+### Ön koşullar
+
+- [ ] İnternet bağlantısı (canlı KAP/haber için; jüri demo internetsiz de çalışır)
+- [ ] Python 3.10+ yüklü (`python3 --version` ile kontrol)
+- [ ] Git yüklü (`git --version` ile kontrol)
+- [ ] Anaconda **base** ortamında **değilsiniz**
+
+---
+
+### Senaryo A — Bu bilgisayarda proje hiç yok (ilk kez)
+
+Terminal'i açın ve **sırayla** şunları yapıştırın:
+
+```bash
+# 1) Repoyu indir
+git clone https://github.com/sude26/SustainQuant-AI.git
+cd SustainQuant-AI
+
+# 2) İlk kurulum (yalnızca bir kez, 5-10 dk bekleyin)
+python3 run.py setup
+
+# 3) Sunumu başlat
+python3 run.py stop
+python3 run.py web
+```
+
+Terminal'de `URL: http://localhost:8501` görününce tarayıcıda açın:
+
+```
+http://localhost:8501
+```
+
+> Windows'ta `python3` yerine `python` yazın.
+
+---
+
+### Senaryo B — Proje zaten bilgisayarda var (en sık durum)
+
+```bash
+cd SustainQuant-AI
+git pull origin main
+python3 run.py stop
+python3 run.py web
+```
+
+Tarayıcı: **http://localhost:8501** → **Cmd+Shift+R** (sert yenile)
+
+> Klasör nerede? Genelde `~/SustainQuant-AI` veya `git clone` yaptığınız yer.
+
+---
+
+### Sunum anı — Ekranda ne yapacaksınız (5 dk)
+
+| Sıra | Sol menü | Buton / aksiyon | Jüriye ne söylersiniz |
+|------|----------|-----------------|------------------------|
+| 1 | **Jüri Demo** | `SUNUMU BAŞLAT` | "3 flagship şirketi otomatik tarıyoruz" |
+| 2 | **Canlı Doğrulama** | BIST: `SASA` → `CANLI DOĞRULAMA ANALİZİ` | "Dataset dışı şirket — izleme modu, Takibe Alınmalı" |
+| 3 | **Kayıtlı Şirket** | Tüpraş seç → `DERİNLEMESİNE ANALİZ BAŞLAT` | "EPDK verisiyle çelişki — Doğrudan Çelişki" |
+| 4 | Sonuç ekranı | `Skor Denetim Dosyası` indir | "Skor şeffaf — adım adım hesap PDF'de" |
+
+**Konuşma metni:** Jüri Demo modunda sidebar → **Sunum notları** (jüriye göstermeden prova için).
+
+---
+
+### Sunum öncesi 2 dakikalık prova (salona girmeden)
+
+```bash
+cd SustainQuant-AI
+git pull origin main
+python3 run.py stop
+python3 run.py web
+```
+
+Tarayıcıda kontrol edin:
+
+- [ ] http://localhost:8501 açılıyor
+- [ ] Jüri Demo → SUNUMU BAŞLAT çalışıyor
+- [ ] Terminal penceresi açık (kapatmayın)
+
+---
+
+### Yedek plan (bir şey ters giderse)
+
+| Durum | Ne yap |
+|-------|--------|
+| Site açılmıyor | `python3 run.py stop` → `python3 run.py web` |
+| Eski ekran | Cmd+Shift+R |
+| Canlı KAP çalışmıyor | **Jüri Demo** veya **Kayıtlı Şirket** kullan (internetsiz güvenli) |
+| SASA hata veriyor | **Kayıtlı Şirket → Tüpraş** ile devam et |
+| Terminal kapandı | Yukarıdaki Senaryo B komutlarını tekrar çalıştır |
+
+**Minimum güvenli sunum:** Sadece **Jüri Demo** modu yeterli — internet bile şart değil.
+
+---
+
+### Sunumda kapatmayın
+
+- Terminal penceresi (site oradan çalışıyor)
+- Sekme: `localhost:8501`
+
+### Sunumdan sonra
+
+```bash
+python3 run.py stop
+```
+
+---
+
 ## Önemli: `localhost` GitHub'dan açılmaz
 
 `http://localhost:8501` **yalnızca kendi bilgisayarınızda** uygulamayı çalıştırdıktan sonra tarayıcıda açılır. GitHub README'deki linke tıklamak çalışmaz — bu bir hata değil, `localhost` her zaman "bu bilgisayar" demektir.
 
 ---
 
-## Sıfırdan kurulum (5 adım)
+## Sıfırdan kurulum (detaylı)
+
+> Sunum günü için kısa yol: yukarıdaki **SUNUM GÜNÜ REHBERİ** bölümüne bakın.
 
 ### 1. Repoyu klonlayın
 
