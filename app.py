@@ -1186,15 +1186,17 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 
-# Şirket/mod değişince eski analiz sonucunu temizle
-if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle", "Canlı Doğrulama") and selected_company:
+# Şirket/mod değişince eski analiz sonucunu temizle (Canlı Doğrulama kendi anahtarını yönetir)
+if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle") and selected_company:
     current_key = f"{mode}_{selected_company}"
 else:
     current_key = mode
-_prev_ctx = st.session_state.get("analysis_context")
-if _prev_ctx != current_key:
-    st.session_state.pop("analysis_result", None)
-st.session_state["analysis_context"] = current_key
+
+if mode != "Canlı Doğrulama":
+    _prev_ctx = st.session_state.get("analysis_context")
+    if _prev_ctx != current_key:
+        st.session_state.pop("analysis_result", None)
+    st.session_state["analysis_context"] = current_key
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1373,6 +1375,12 @@ elif mode == "Canlı Doğrulama":
 
             bist_code = live_record["bist_kodu"]
             fetch_signature = f"{bist_code}_{include_kap}_{include_news}"
+            live_analysis_key = f"Canlı Doğrulama_{bist_code}"
+
+            if st.session_state.get("_live_analysis_bist") != bist_code:
+                st.session_state["_live_analysis_bist"] = bist_code
+                st.session_state.pop("analysis_result", None)
+                st.session_state["analysis_context"] = live_analysis_key
 
             if st.session_state.get("_live_fetch_sig") != fetch_signature:
                 try:
@@ -1451,8 +1459,6 @@ elif mode == "Canlı Doğrulama":
                 label_visibility="collapsed",
                 key=f"live_eylem_{bist_code}",
             )
-
-            live_analysis_key = f"Canlı Doğrulama_{bist_code}"
 
             if st.button(
                 "▸  CANLI DOĞRULAMA ANALİZİ",
