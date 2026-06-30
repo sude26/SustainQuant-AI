@@ -34,7 +34,7 @@ from data.pdf_extractor import (
     extract_text_from_pdf,
 )
 from data.demo_scenario import DEMO_SCRIPT
-from services.jury_report import build_analysis_pdf, build_portfolio_pdf
+from services.jury_report import build_analysis_pdf, build_portfolio_pdf, build_score_audit_pdf
 from services.live_verification import fetch_live_context, build_enriched_record
 from services.alert_bus import get_recent_alerts
 from services.api_client import get_api_client
@@ -354,29 +354,11 @@ def sync_pdf_inputs(file_ctx: str | None, company_ctx: str, soylem: str | None, 
 
 
 def resolve_pdf_eylem(record: dict | None) -> tuple[str, str]:
-    """Seçili şirket için doğrulama (eylem) metnini dataset + canlı kaynaktan üretir."""
+    """PDF modu: güvenilir dataset eylem metni (KAP placeholder'ları karıştırmaz)."""
     if not record:
         return "", ""
     eylem = record.get("eylem", "")
-    source_label = f"{record.get('kaynak', 'Dataset')} · {record.get('eylem_tarihi', '')}"
-    if record.get("bist_kodu"):
-        try:
-            from services.live_verification import fetch_live_context
-            live = fetch_live_context(
-                company_name=record["sirket_adi"],
-                bist_code=record["bist_kodu"],
-                category=record.get("esg_kategorisi", ""),
-                dataset_eylem=eylem,
-                include_kap=True,
-                include_news=True,
-            )
-            if live.get("merged_eylem"):
-                eylem = live["merged_eylem"]
-                verification = live.get("verification") or {}
-                src_count = verification.get("source_count", 0)
-                source_label = f"Dataset + KAP/haber · {src_count} kaynak"
-        except Exception:
-            pass
+    source_label = f"{record.get('kaynak', 'Resmi kurum dataset')} · {record.get('eylem_tarihi', '')}"
     return eylem, source_label
 
 
@@ -889,15 +871,30 @@ def render_analysis_results(result: dict):
                 st.text((src.get("text") or "")[:400] + "...")
 
     try:
+        pdf_col1, pdf_col2 = st.columns(2)
         pdf_bytes = build_analysis_pdf(result)
-        st.download_button(
-            "📄  Jüri PDF Raporu İndir",
-            data=pdf_bytes,
-            file_name=f"sustainquant_{result.get('bist_code', 'rapor')}_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            key=f"pdf_dl_{result.get('company_name', '')}_{result.get('category', '')}",
-        )
+        audit_bytes = build_score_audit_pdf(result)
+        bist = result.get("bist_code", "rapor")
+        date_tag = datetime.now().strftime("%Y%m%d")
+        with pdf_col1:
+            st.download_button(
+                "📄  Jüri PDF Raporu",
+                data=pdf_bytes,
+                file_name=f"sustainquant_{bist}_{date_tag}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"pdf_dl_{result.get('company_name', '')}_{result.get('category', '')}",
+            )
+        with pdf_col2:
+            st.download_button(
+                "📋  Skor Denetim Dosyası",
+                data=audit_bytes,
+                file_name=f"sustainquant_denetime_{bist}_{date_tag}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"audit_dl_{result.get('company_name', '')}_{result.get('category', '')}",
+                help="Risk skorunun nasıl hesaplandığını adım adım açıklar — uzman doğrulaması için",
+            )
     except Exception as e:
         st.caption(f"PDF oluşturulamadı: {e}")
 
@@ -1286,8 +1283,8 @@ elif mode == "PDF Rapor Yükle":
     st.markdown('<div class="sq-card-label">PDF SÜRDÜRÜLEBİLİRLİK RAPORU YÜKLE</div>', unsafe_allow_html=True)
     st.markdown(
         '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
-        'PDF yükleyin → söylem otomatik çıkarılır. Eylem verisi seçili şirket için '
-        'dataset + KAP/haber kaynaklarından doldurulur.</p>',
+        'PDF yükleyin → söylem otomatik çıkarılır. Eylem verisi seçili şirketin '
+        'resmi kaynak dataset\'inden doldurulur.</p>',
         unsafe_allow_html=True,
     )
 
@@ -1357,25 +1354,28 @@ elif mode == "PDF Rapor Yükle":
             label_visibility="collapsed", key="pdf_eylem",
         )
 
-        if st.button("▸  PDF ANALİZİ BAŞLAT", type="primary", use_container_width=True):
+        if st.button("▸  PDF ANALİZİ BAŞLAT", type="primary", use_container_width=True, key="btn_pdf_analyze"):
             if not (soylem or "").strip() or not (eylem or "").strip():
                 st.error("Önce PDF yükleyin ve sidebar'dan şirket seçin.")
             elif not selected_company:
                 st.error("Lütfen sidebar'dan şirket seçin.")
             else:
-                with st.spinner("Say-Do Gap analizi çalışıyor…"):
-                    analysis_record = {
-                        **(default_record or {}),
-                        "sirket_adi": selected_company,
-                        "soylem": soylem,
-                        "eylem": eylem,
-                        "esg_kategorisi": (default_record or {}).get("esg_kategorisi", "Genel ESG"),
-                    }
-                    result = analyzer.analyze_record(analysis_record)
-                st.session_state["analysis_result"] = result
-                st.session_state["analysis_context"] = f"PDF_{selected_company}"
-                st.success(f"Analiz tamamlandı — Risk skoru: {result['risk_score']:.0f}/100")
-                st.rerun()
+                try:
+                    with st.spinner("Say-Do Gap analizi çalışıyor…"):
+                        analysis_record = {
+                            **(default_record or {}),
+                            "sirket_adi": selected_company,
+                            "soylem": soylem,
+                            "eylem": eylem,
+                            "esg_kategorisi": (default_record or {}).get("esg_kategorisi", "Genel ESG"),
+                        }
+                        result = analyzer.analyze_record(analysis_record)
+                    st.session_state["analysis_result"] = result
+                    st.session_state["analysis_context"] = current_key
+                    st.toast(f"Analiz tamamlandı — Risk: {result['risk_score']:.0f}/100", icon="✅")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Analiz hatası: {exc}")
 
     with col2:
         render_watchlist_panel(watchlist_items, pending=watchlist_pending)
@@ -1384,7 +1384,7 @@ elif mode == "PDF Rapor Yükle":
                 st.session_state.watchlist_summary = analyzer.get_portfolio_summary()
             st.rerun()
 
-    if st.session_state.get("analysis_result") and st.session_state.get("analysis_context", "").startswith("PDF"):
+    if st.session_state.get("analysis_result"):
         st.markdown("---")
         render_analysis_results(st.session_state["analysis_result"])
 

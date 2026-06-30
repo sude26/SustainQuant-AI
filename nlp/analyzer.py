@@ -342,6 +342,7 @@ class GreenwashingAnalyzer:
             "company_name": record["sirket_adi"],
             "bist_code": record.get("bist_kodu", ""),
             "category": record["esg_kategorisi"],
+            "inputs": {"soylem": soylem, "eylem": eylem},
             "risk_score": gap_result["risk_score"],
             "anomaly_status": gap_result["anomaly_status"],
             "anomaly_key": gap_result["anomaly_key"],

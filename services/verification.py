@@ -83,11 +83,23 @@ def assess_sources(sources: list[dict]) -> dict:
     }
 
 
+def is_usable_action_text(text: str) -> bool:
+    """KAP/XBRL placeholder veya çok kısa metinleri filtreler."""
+    if not text or len(text.strip()) < 80:
+        return False
+    bracket_hits = text.count("[") + text.count("]")
+    if bracket_hits >= 4:
+        return False
+    if "[" in text and "]" in text and bracket_hits / max(len(text), 1) > 0.02:
+        return False
+    return True
+
+
 def merge_action_sources(kap: dict | None, news: list[dict], dataset_action: str = "") -> tuple[str, list[dict]]:
     """KAP, haber ve veri seti kaynaklarını birleştirir."""
     sources = []
 
-    if kap and kap.get("eylem_text"):
+    if kap and kap.get("eylem_text") and is_usable_action_text(kap["eylem_text"]):
         sources.append({
             "source": kap.get("source", "KAP"),
             "source_url": kap.get("source_url", ""),
