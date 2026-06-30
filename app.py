@@ -900,36 +900,63 @@ def render_analysis_results(result: dict):
 
 
 def create_heatmap_chart(heatmap_data: dict) -> go.Figure:
-    """Anomali ısı haritası (şirket × kategori)."""
-    import math
-    z_raw = heatmap_data["matrix"]
-    z = [[float(v) if v is not None else math.nan for v in row] for row in z_raw]
-    fig = go.Figure(go.Heatmap(
-        z=z,
-        x=heatmap_data["categories"],
-        y=heatmap_data["companies"],
-        colorscale=[
-            [0.0, "#14E08A"],
-            [0.35, "#FFB23E"],
-            [0.55, "#FF8C42"],
-            [0.75, "#FF5C5C"],
-            [1.0, "#CC2244"],
-        ],
-        zmin=0,
-        zmax=100,
-        text=[[f"{v:.0f}" if v is not None else "" for v in row] for row in z_raw],
-        texttemplate="%{text}",
-        textfont={"size": 14, "color": "#E8EEF4"},
-        hovertemplate="Şirket: %{y}<br>Kategori: %{x}<br>Risk: %{z:.1f}/100<extra></extra>",
-        colorbar=dict(title="Risk", tickfont=dict(color="#8AA0B4")),
+    """Anomali risk haritası — yalnızca veri olan hücreler (şirket × kategori)."""
+    cells = heatmap_data.get("cells") or []
+    if not cells:
+        return go.Figure()
+
+    colorscale = [
+        [0.0, "#14E08A"],
+        [0.35, "#FFB23E"],
+        [0.55, "#FF8C42"],
+        [0.75, "#FF5C5C"],
+        [1.0, "#CC2244"],
+    ]
+
+    fig = go.Figure(go.Scatter(
+        x=[c["category"] for c in cells],
+        y=[c["company_name"] for c in cells],
+        mode="markers+text",
+        marker=dict(
+            size=[max(28, c["risk_score"] * 0.55) for c in cells],
+            color=[c["risk_score"] for c in cells],
+            colorscale=colorscale,
+            cmin=0,
+            cmax=100,
+            colorbar=dict(
+                title="Risk Skoru",
+                tickvals=[0, 25, 50, 75, 100],
+                ticktext=["0 Güvenli", "25", "50", "75", "100 Yüksek"],
+                tickfont=dict(color="#8AA0B4"),
+            ),
+            line=dict(width=1, color="#0A1424"),
+        ),
+        text=[f"{c['risk_score']:.0f}" for c in cells],
+        textposition="middle center",
+        textfont=dict(size=12, color="#E8EEF4", family="IBM Plex Mono"),
+        customdata=[[c.get("anomaly_status", ""), c["risk_score"]] for c in cells],
+        hovertemplate=(
+            "<b>%{y}</b><br>Kategori: %{x}<br>"
+            "Risk: %{customdata[1]:.1f}/100<br>"
+            "Anomali: %{customdata[0]}<extra></extra>"
+        ),
     ))
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font={"color": "#E8EEF4"},
-        height=320,
-        margin=dict(l=80, r=20, t=30, b=60),
-        xaxis=dict(tickangle=-20),
+        height=max(320, len({c['company_name'] for c in cells}) * 28),
+        margin=dict(l=120, r=40, t=30, b=80),
+        xaxis=dict(
+            title="ESG Kategorisi (risk değil, konu başlığı)",
+            tickangle=-25,
+            gridcolor="rgba(48,54,61,0.3)",
+        ),
+        yaxis=dict(
+            title="Şirket",
+            gridcolor="rgba(48,54,61,0.3)",
+            autorange="reversed",
+        ),
     )
     return fig
 
@@ -1182,19 +1209,54 @@ if mode in ("Kayıtlı Şirket", "Manuel Giriş"):
 elif mode == "Canlı Doğrulama":
     st.markdown('<div class="sq-card-label">CANLI DOĞRULAMA · KAP + HABER + ÇOKLU KAYNAK</div>', unsafe_allow_html=True)
     st.markdown(
-        '<p style="color:#8AA0B4;font-size:13px;margin-bottom:16px">'
-        'KAP bildirimleri ve whitelist haber kaynakları otomatik çekilir; '
-        'çoklu kaynak teyidi ve zaman çizelgesi analizi yapılır.</p>',
+        '<p style="color:#8AA0B4;font-size:13px;margin-bottom:12px">'
+        '<b>Ne işe yarar?</b> Seçili şirket için KAP bildirimi ve haber RSS otomatik çekilir, '
+        'dataset eylem verisiyle birleştirilir ve Say-Do Gap analizi yapılır.<br>'
+        '<b>Dataset şart mı?</b> Söylem için 15 şirketlik hazır veri kullanılır; '
+        'aşağıdan herhangi bir BIST kodu ile yalnızca KAP çekimi de yapılabilir.</p>',
         unsafe_allow_html=True,
     )
 
-    if not record:
-        st.warning("Lütfen sidebar'dan bir şirket seçin.")
+    free_bist = st.text_input(
+        "Serbest BIST kodu (jüri anında söylerse)",
+        placeholder="Örn: THYAO, SASA, TUPRS — KAP'tan bildirim çekilir",
+        help="Dataset'te olmayan şirketler için. Söylemi manuel yapıştırırsınız.",
+    ).strip().upper()
+
+    live_record = record
+    if free_bist:
+        try:
+            from data.kap_fetcher import get_kap_fetcher
+            kap_meta = get_kap_fetcher().get_company(free_bist)
+            if kap_meta:
+                live_record = {
+                    "sirket_adi": kap_meta.get("companyName") or free_bist,
+                    "bist_kodu": free_bist,
+                    "esg_kategorisi": "Genel ESG (KAP)",
+                    "soylem": "",
+                    "eylem": "",
+                    "kaynak": "KAP",
+                    "kaynak_tipi": "Canlı",
+                }
+                st.success(f"KAP eşleşmesi: **{live_record['sirket_adi']}** ({free_bist})")
+            else:
+                st.error(f"'{free_bist}' KAP şirket listesinde bulunamadı.")
+                live_record = None
+        except Exception as exc:
+            st.error(f"KAP bağlantı hatası: {exc}")
+            live_record = None
+
+    if not live_record:
+        st.warning("Sidebar'dan şirket seçin veya yukarıya BIST kodu yazın.")
     else:
         col1, col2 = st.columns([1.4, 1], gap="large")
 
         with col1:
-            st.markdown(f'<div class="sq-card-label">ŞİRKET — {record["bist_kodu"]} · {record["esg_kategorisi"]}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="sq-card-label">ŞİRKET — {live_record["bist_kodu"]} · '
+                f'{live_record["esg_kategorisi"]}</div>',
+                unsafe_allow_html=True,
+            )
 
             lc1, lc2 = st.columns(2)
             with lc1:
@@ -1205,24 +1267,26 @@ elif mode == "Canlı Doğrulama":
             soylem_tarihi = st.text_input("Söylem tarihi", value="2025-01-01", help="YYYY-MM-DD")
 
             soylem = st.text_area(
-                "Söylem", value=record["soylem"], height=120, label_visibility="collapsed",
-                key=f"live_soylem_{selected_company}",
+                "Söylem", value=live_record.get("soylem") or "", height=120,
+                placeholder="Şirketin ESG iddiasını yapıştırın (KAP-only modda zorunlu)…",
+                label_visibility="collapsed",
+                key=f"live_soylem_{live_record['bist_kodu']}",
             )
 
             if st.button("↻  KAYNAKLARI ÇEK", use_container_width=True):
                 with st.spinner("KAP ve haber kaynakları taranıyor…"):
                     st.session_state.live_context = fetch_live_context(
-                        company_name=record["sirket_adi"],
-                        bist_code=record["bist_kodu"],
-                        category=record["esg_kategorisi"],
-                        dataset_eylem=record.get("eylem", ""),
+                        company_name=live_record["sirket_adi"],
+                        bist_code=live_record["bist_kodu"],
+                        category=live_record["esg_kategorisi"],
+                        dataset_eylem=live_record.get("eylem", ""),
                         include_kap=include_kap,
                         include_news=include_news,
                     )
                 st.rerun()
 
             ctx = st.session_state.get("live_context")
-            preview_eylem = record["eylem"]
+            preview_eylem = live_record.get("eylem") or ""
             if ctx:
                 preview_eylem = ctx.get("merged_eylem") or preview_eylem
                 if ctx.get("kap") and ctx["kap"].get("error"):
@@ -1231,29 +1295,36 @@ elif mode == "Canlı Doğrulama":
             st.markdown('<div class="sq-card-label" style="margin-top:12px">EYLEM — birleşik kaynak metni</div>', unsafe_allow_html=True)
             eylem = st.text_area(
                 "", value=preview_eylem, height=140, label_visibility="collapsed",
-                key=f"live_eylem_{selected_company}",
+                key=f"live_eylem_{live_record['bist_kodu']}",
             )
 
             if st.button("▸  CANLI DOĞRULAMA ANALİZİ", type="primary", use_container_width=True):
-                with st.spinner("KAP + haber + Say-Do Gap analizi…"):
-                    analysis_record = {
-                        **record,
-                        "soylem": soylem,
-                        "eylem": eylem,
-                        "soylem_tarihi": soylem_tarihi,
-                    }
-                    if ctx:
-                        analysis_record = build_enriched_record(analysis_record, ctx, soylem_tarihi)
-                    else:
-                        live = fetch_live_context(
-                            record["sirket_adi"], record["bist_kodu"],
-                            record["esg_kategorisi"], record.get("eylem", ""),
-                            include_kap, include_news,
-                        )
-                        analysis_record = build_enriched_record(analysis_record, live, soylem_tarihi)
-                    result = analyzer.analyze_record(analysis_record)
-                st.session_state["analysis_result"] = result
-                st.success(f"Canlı analiz tamamlandı — Risk: {result['risk_score']:.0f}/100")
+                if not (soylem or "").strip():
+                    st.error("Söylem alanı boş — iddiayı yapıştırın veya dataset şirketi seçin.")
+                elif not (eylem or "").strip():
+                    st.error("Önce KAYNAKLARI ÇEK ile KAP/haber verisi getirin.")
+                else:
+                    with st.spinner("KAP + haber + Say-Do Gap analizi…"):
+                        analysis_record = {
+                            **live_record,
+                            "soylem": soylem,
+                            "eylem": eylem,
+                            "soylem_tarihi": soylem_tarihi,
+                        }
+                        if ctx:
+                            analysis_record = build_enriched_record(analysis_record, ctx, soylem_tarihi)
+                        else:
+                            live = fetch_live_context(
+                                live_record["sirket_adi"], live_record["bist_kodu"],
+                                live_record["esg_kategorisi"], live_record.get("eylem", ""),
+                                include_kap, include_news,
+                            )
+                            analysis_record = build_enriched_record(analysis_record, live, soylem_tarihi)
+                        result = analyzer.analyze_record(analysis_record)
+                    st.session_state["analysis_result"] = result
+                    st.session_state["analysis_context"] = current_key
+                    st.toast(f"Canlı analiz tamamlandı — Risk: {result['risk_score']:.0f}/100", icon="✅")
+                    st.rerun()
 
         with col2:
             render_watchlist_panel(watchlist_items, pending=watchlist_pending)
@@ -1415,8 +1486,27 @@ elif mode == "Portföy Tarama":
         s4.metric("MAKS. RİSK", f"{summary['max_risk_score']:.1f}")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="sq-card-label">ANOMALİ ISI HARİTASI · ŞİRKET × KATEGORİ</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sq-card-label">ANOMALİ RİSK HARİTASI · ŞİRKET × KATEGORİ</div>', unsafe_allow_html=True)
+        st.caption(
+            "X ekseni kategori adıdır (Atık, Enerji vb.) — yeşil bölge değildir. "
+            "Renk ve sayı = yeşil aklama risk skoru (0 güvenli → 100 yüksek risk). "
+            "Her şirketin dataset'te tek kategorisi olduğu için bir nokta görünür."
+        )
         st.plotly_chart(create_heatmap_chart(heatmap_data), use_container_width=True)
+        with st.expander("Anomali sınıfları nasıl belirlenir?"):
+            st.markdown("""
+            **Risk skoru** Say-Do Gap algoritmasından gelir: söylem–eylem benzerliği (%65) + duygu boşluğu (%35).
+
+            | Skor | Sınıf | Anlam |
+            |------|-------|-------|
+            | 0–25 | Tam Uyum | İddia ile eylem uyumlu |
+            | 26–50 | Kapsam Uyuşmazlığı | Kısmi fark / ölçek farkı |
+            | **51–75** | **Doğrudan Çelişki** | Belirgin tutarsızlık (ör. Tüpraş ~59) |
+            | 76–100 | Veri Yetersizliği | Çapraz doğrulama zayıf / çok yüksek risk |
+
+            Örnek **Tüpraş**: Enerji tasarrufu iddiası (söylem) vs EPDK verisi — tüketim artışı (eylem) →
+            düşük benzerlik → skor ~59 → otomatik **Doğrudan Çelişki** etiketi.
+            """)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sq-card-label">ŞİRKET RİSK KARŞILAŞTIRMASI</div>', unsafe_allow_html=True)

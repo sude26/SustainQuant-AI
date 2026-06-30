@@ -517,6 +517,7 @@ class GreenwashingAnalyzer:
         categories = sorted({r["category"] for r in results})
 
         lookup = {(r["company_name"], r["category"]): r["risk_score"] for r in results}
+        lookup_anomaly = {(r["company_name"], r["category"]): r["anomaly_status"] for r in results}
 
         # En yüksek riskli şirket üstte
         max_risk = {}
@@ -537,6 +538,7 @@ class GreenwashingAnalyzer:
                         "company_name": company,
                         "category": category,
                         "risk_score": score,
+                        "anomaly_status": lookup_anomaly.get((company, category), ""),
                     })
             matrix.append(row)
 
