@@ -62,6 +62,7 @@ COMPANY_ALIASES = {
     "Tofaş": ["tofaş", "toaso"],
     "Akbank": ["akbank", "akbnk"],
     "Koza Altın": ["koza altın", "kozal"],
+    "SASA": ["sasa", "sasa polyester", "sasa polyester sanayi"],
 }
 
 
@@ -86,9 +87,23 @@ def _parse_rss_date(value: str) -> Optional[datetime]:
     return None
 
 
+def _aliases_for_company(company_name: str, bist_code: str) -> list[str]:
+    if company_name in COMPANY_ALIASES:
+        return COMPANY_ALIASES[company_name]
+    code = (bist_code or "").lower()
+    for key, aliases in COMPANY_ALIASES.items():
+        if key.lower() == code or code in [a.lower() for a in aliases]:
+            return aliases
+    return []
+
+
 def _company_terms(company_name: str, bist_code: str) -> list[str]:
     terms = [company_name.lower(), bist_code.lower()]
-    for alias in COMPANY_ALIASES.get(company_name, []):
+    # KAP tam unvanından kısa ticker (ör. "SASA POLYESTER..." → "sasa")
+    first_token = company_name.split()[0].lower().rstrip(".,;")
+    if len(first_token) >= 3:
+        terms.append(first_token)
+    for alias in _aliases_for_company(company_name, bist_code):
         terms.append(alias.lower())
     return list(dict.fromkeys(t for t in terms if t))
 

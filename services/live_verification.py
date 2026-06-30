@@ -15,6 +15,17 @@ from data.pdf_extractor import extract_esg_claims
 from services.verification import assess_sources, merge_action_sources
 from services.timeline import analyze_timeline
 
+WATCHLIST_EYLEM_TEMPLATE = (
+    "Bağımsız kaynak taraması (haber RSS + resmi kurum veri seti) sonucunda "
+    "{company} ({bist}) için çapraz doğrulama verisi bulunamadı. "
+    "Söylem metni KAP sürdürülebilirlik bildiriminden alınmıştır; eylem teyidi yapılamamıştır. "
+    "Sistem önerisi: şirket manuel izleme kuyruğuna alınmalıdır (TAKİBE AL)."
+)
+
+
+def _watchlist_eylem(company_name: str, bist_code: str) -> str:
+    return WATCHLIST_EYLEM_TEMPLATE.format(company=company_name, bist=bist_code or "—")
+
 
 def _resolve_soylem(dataset_soylem: str, kap: dict | None) -> tuple[str, str]:
     """Söylem metnini dataset veya KAP bildiriminden üretir."""
@@ -65,6 +76,18 @@ def fetch_live_context(
         dataset_eylem,
     )
 
+    watchlist_recommended = False
+    if not merged_eylem and merged_soylem:
+        merged_eylem = _watchlist_eylem(company_name, bist_code)
+        watchlist_recommended = True
+        eylem_sources.append({
+            "source": "Sistem — İzleme Modu",
+            "source_url": "",
+            "text": merged_eylem,
+            "type": "watchlist_placeholder",
+            "trusted": False,
+        })
+
     all_sources = list(eylem_sources)
     if merged_soylem:
         if (dataset_soylem or "").strip():
@@ -86,6 +109,14 @@ def fetch_live_context(
             })
 
     verification = assess_sources(eylem_sources)
+    if watchlist_recommended:
+        verification = {
+            **verification,
+            "confidence": "düşük",
+            "confidence_score": 15,
+            "label": "Bağımsız kaynak yok — Takibe Alınmalı",
+            "multi_source_verified": False,
+        }
 
     eylem_date = None
     news_dates = [n.get("published_datetime") for n in news if n.get("published_datetime")]
@@ -104,6 +135,11 @@ def fetch_live_context(
         "merged_eylem": merged_eylem,
         "verification": verification,
         "eylem_date_hint": eylem_date,
+        "watchlist_recommended": watchlist_recommended,
+        "verification_level": (
+            "full" if merged_eylem and not watchlist_recommended
+            else ("watchlist" if watchlist_recommended else "empty")
+        ),
     }
 
 

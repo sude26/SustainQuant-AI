@@ -393,6 +393,30 @@ def render_jury_presenter_notes():
             st.markdown(f"**Adım {step['step']} — {step['company']}:** {line}")
 
 
+def apply_watchlist_overlay(result: dict, live_ctx: dict | None) -> dict:
+    """Bağımsız eylem kaynağı yoksa sonucu izleme önerisine çevirir."""
+    if not live_ctx or not live_ctx.get("watchlist_recommended"):
+        return result
+    company = result.get("company_name", "Şirket")
+    bist = result.get("bist_code", "")
+    updated = {**result}
+    updated["watchlist_recommended"] = True
+    updated["risk_score"] = max(float(result.get("risk_score", 0)), 76.0)
+    updated["anomaly_status"] = "Veri Yetersizliği — Takibe Alınmalı"
+    updated["anomaly_key"] = "veri_yetersizligi"
+    updated["summary"] = (
+        f"{company} ({bist}) için KAP sürdürülebilirlik söylemi mevcut, ancak bağımsız "
+        f"doğrulama kaynağı (haber RSS / resmi kurum dataset) bulunamadı. "
+        f"Çapraz teyit yapılamadığından şirket **izleme listesine alınmalıdır**. "
+        f"Manuel kaynak taraması ve sonraki KAP bildirimi beklenmelidir."
+    )
+    updated["trigger"] = (
+        "Bağımsız haber veya resmi kurum verisi gelene kadar portföy dışı bırakılmalı; "
+        "izleme kuyruğunda tutulmalı."
+    )
+    return updated
+
+
 def run_company_analysis(analyzer, mode: str, record, soylem: str, eylem: str,
                          default_company: str, default_category: str) -> dict:
     """Analiz çalıştırır ve sonucu session state'e yazar."""
@@ -759,6 +783,12 @@ def render_methodology_info():
 
 def render_analysis_results(result: dict):
     """B2B terminal sonuç paneli — gerçek NLP çıktısı."""
+    if result.get("watchlist_recommended"):
+        st.warning(
+            "📋 **TAKİBE ALINMALI** — Bağımsız doğrulama kaynağı bulunamadı. "
+            "Söylem (KAP) mevcut ancak eylem teyidi yapılamadı; şirket izleme kuyruğuna alınmalı."
+        )
+
     risk_skoru = result["risk_score"]
     band = risk_to_band(risk_skoru)
     band_class, band_color, _ = band_style(band)
@@ -1325,12 +1355,18 @@ elif mode == "Canlı Doğrulama":
                 if news:
                     st.caption(f"Eylem — haber: {len(news)} eşleşme")
                 if preview_soylem and preview_eylem:
-                    st.success(
-                        f"✓ Hazır — söylem {len(preview_soylem):,} karakter, "
-                        f"eylem {len(preview_eylem):,} karakter"
-                    )
+                    if ctx.get("watchlist_recommended"):
+                        st.info(
+                            "⚠️ **İzleme modu** — haber/dataset eylem bulunamadı; "
+                            "analiz **Takibe Alınmalı** önerisi üretir."
+                        )
+                    else:
+                        st.success(
+                            f"✓ Hazır — söylem {len(preview_soylem):,} karakter, "
+                            f"eylem {len(preview_eylem):,} karakter"
+                        )
                 elif preview_soylem:
-                    st.warning("Söylem bulundu; eylem için dataset şirketi veya haber gerekli.")
+                    st.warning("Söylem bulundu; doğrulama kaynağı için KAYNAKLARI YENİLE deneyin.")
                 elif preview_eylem:
                     st.warning("Eylem bulundu; söylem için KAP bildirimi bekleniyor.")
                 else:
@@ -1395,6 +1431,8 @@ elif mode == "Canlı Doğrulama":
                                     analysis_record, live, soylem_tarihi,
                                 )
                             result = analyzer.analyze_record(analysis_record)
+                            active_ctx = ctx or st.session_state.get("live_context")
+                            result = apply_watchlist_overlay(result, active_ctx)
                         st.session_state["analysis_result"] = result
                         st.session_state["analysis_context"] = current_key
                         st.toast(
