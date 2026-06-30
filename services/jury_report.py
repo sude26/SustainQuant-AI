@@ -9,8 +9,8 @@ from html import escape
 from pathlib import Path
 
 
-def _setup_unicode_font(pdf):
-    """Türkçe karakter desteği için sistem fontu."""
+def _setup_unicode_font(pdf) -> bool:
+    """Türkçe karakter desteği için sistem fontu (bold/italic dahil)."""
     candidates = [
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
@@ -19,10 +19,19 @@ def _setup_unicode_font(pdf):
     for path in candidates:
         if Path(path).exists():
             pdf.add_font("UniFont", "", path)
+            pdf.add_font("UniFont", "B", path)
+            pdf.add_font("UniFont", "I", path)
+            pdf.add_font("UniFont", "BI", path)
             pdf.set_font("UniFont", size=11)
             return True
     pdf.set_font("Helvetica", size=11)
     return False
+
+
+def _prepare_html_for_pdf(html: str, unicode_ok: bool) -> str:
+    if not unicode_ok:
+        return _ascii_safe(html)
+    return html
 
 
 def _ascii_safe(text: str) -> str:
@@ -86,9 +95,8 @@ def build_analysis_pdf(result: dict) -> bytes:
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    if not _setup_unicode_font(pdf):
-        html = _ascii_safe(html)
-    pdf.write_html(html)
+    unicode_ok = _setup_unicode_font(pdf)
+    pdf.write_html(_prepare_html_for_pdf(html, unicode_ok))
     return bytes(pdf.output())
 
 
@@ -198,10 +206,7 @@ def build_score_audit_pdf(result: dict) -> bytes:
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     unicode_ok = _setup_unicode_font(pdf)
-    if not unicode_ok:
-        html = _ascii_safe(html)
-    html = html.replace("<b>", "").replace("</b>", "")
-    pdf.write_html(html)
+    pdf.write_html(_prepare_html_for_pdf(html, unicode_ok))
     return bytes(pdf.output())
 
 
@@ -230,7 +235,6 @@ def build_portfolio_pdf(summary: dict) -> bytes:
   """
     pdf = FPDF()
     pdf.add_page()
-    if not _setup_unicode_font(pdf):
-        html = _ascii_safe(html)
-    pdf.write_html(html)
+    unicode_ok = _setup_unicode_font(pdf)
+    pdf.write_html(_prepare_html_for_pdf(html, unicode_ok))
     return bytes(pdf.output())
