@@ -128,6 +128,6 @@ def merge_action_sources(kap: dict | None, news: list[dict], dataset_action: str
             "trusted": True,
         })
 
-    parts = [s["text"] for s in sources if s.get("text")]
-    combined = "\n\n".join(parts)
+    parts = [str(s["text"]).strip() for s in sources if s.get("text")]
+    combined = "\n\n".join(p for p in parts if p)
     return combined, sources

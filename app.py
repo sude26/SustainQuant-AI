@@ -5,6 +5,7 @@ B2B Finans Terminali arayüzü + gerçek NLP motoru entegrasyonu.
 Rapordaki Katman 3 – Sunum katmanının implementasyonu.
 """
 
+import hashlib
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
@@ -352,14 +353,61 @@ def get_record_by_bist(bist_code: str) -> dict | None:
     return None
 
 
-def sync_live_text_inputs(bist: str, eylem: str, soylem: str | None = None):
+def _text_fingerprint(*parts: str) -> str:
+    blob = "||".join(parts)
+    return hashlib.md5(blob.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def reset_live_fetch_state(bist: str):
+    """Kaynak yenilemede önbelleği ve metin kutularını sıfırlar."""
+    st.session_state.pop("_live_fetch_sig", None)
+    st.session_state.pop("_live_text_ctx", None)
+    st.session_state.pop("live_context", None)
+    for key in (f"live_soylem_{bist}", f"live_eylem_{bist}"):
+        st.session_state.pop(key, None)
+
+
+def sync_live_text_inputs(bist: str, eylem: str, soylem: str | None = None, force: bool = False):
     """Canlı doğrulama metin kutularını session state ile günceller."""
-    ctx_key = f"live_{bist}_{len(eylem)}_{len(soylem or '')}"
-    if st.session_state.get("_live_text_ctx") != ctx_key:
-        st.session_state["_live_text_ctx"] = ctx_key
+    fp = f"live_{bist}_{_text_fingerprint(eylem, soylem or '')}"
+    if force or st.session_state.get("_live_text_ctx") != fp:
+        st.session_state["_live_text_ctx"] = fp
+        # Widget önbelleğini kır — Streamlit bazen boş kutuyu kilitleyebiliyor.
+        st.session_state.pop(f"live_eylem_{bist}", None)
+        st.session_state.pop(f"live_soylem_{bist}", None)
         st.session_state[f"live_eylem_{bist}"] = eylem
         if soylem is not None:
             st.session_state[f"live_soylem_{bist}"] = soylem
+
+
+def resolve_live_texts(
+    live_record: dict,
+    widget_soylem: str,
+    widget_eylem: str,
+    live_ctx: dict | None,
+    include_kap: bool = True,
+    include_news: bool = True,
+) -> tuple[str, str, dict | None]:
+    """Kutu + canlı bağlamdan analiz için nihai söylem/eylem üretir."""
+    ctx = live_ctx
+    soylem = (widget_soylem or "").strip()
+    eylem = (widget_eylem or "").strip()
+    if ctx:
+        soylem = soylem or (ctx.get("merged_soylem") or "").strip()
+        eylem = eylem or (ctx.get("merged_eylem") or "").strip()
+    if soylem and not eylem:
+        ctx = fetch_live_context(
+            company_name=live_record["sirket_adi"],
+            bist_code=live_record["bist_kodu"],
+            category=live_record.get("esg_kategorisi", ""),
+            dataset_soylem=live_record.get("soylem", ""),
+            dataset_eylem=live_record.get("eylem", ""),
+            include_kap=include_kap,
+            include_news=include_news,
+        )
+        soylem = (ctx.get("merged_soylem") or soylem).strip()
+        eylem = (ctx.get("merged_eylem") or "").strip()
+    return soylem, eylem, ctx
 
 
 def sync_pdf_inputs(file_ctx: str | None, company_ctx: str, soylem: str | None, eylem: str):
@@ -1327,18 +1375,28 @@ elif mode == "Canlı Doğrulama":
             fetch_signature = f"{bist_code}_{include_kap}_{include_news}"
 
             if st.session_state.get("_live_fetch_sig") != fetch_signature:
-                with st.spinner("Söylem + doğrulama kaynakları otomatik çekiliyor…"):
-                    st.session_state.live_context = fetch_live_context(
-                        company_name=live_record["sirket_adi"],
-                        bist_code=bist_code,
-                        category=live_record["esg_kategorisi"],
-                        dataset_soylem=live_record.get("soylem", ""),
-                        dataset_eylem=live_record.get("eylem", ""),
-                        include_kap=include_kap,
-                        include_news=include_news,
-                    )
-                    st.session_state._live_fetch_sig = fetch_signature
-                st.rerun()
+                try:
+                    with st.spinner("Söylem + doğrulama kaynakları otomatik çekiliyor…"):
+                        ctx_fresh = fetch_live_context(
+                            company_name=live_record["sirket_adi"],
+                            bist_code=bist_code,
+                            category=live_record["esg_kategorisi"],
+                            dataset_soylem=live_record.get("soylem", ""),
+                            dataset_eylem=live_record.get("eylem", ""),
+                            include_kap=include_kap,
+                            include_news=include_news,
+                        )
+                        st.session_state.live_context = ctx_fresh
+                        st.session_state._live_fetch_sig = fetch_signature
+                        sync_live_text_inputs(
+                            bist_code,
+                            ctx_fresh.get("merged_eylem") or "",
+                            ctx_fresh.get("merged_soylem"),
+                            force=True,
+                        )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Kaynak çekme hatası: {exc}")
 
             ctx = st.session_state.get("live_context")
             preview_soylem = live_record.get("soylem") or ""
@@ -1354,17 +1412,16 @@ elif mode == "Canlı Doğrulama":
                 news = ctx.get("news") or []
                 if news:
                     st.caption(f"Eylem — haber: {len(news)} eşleşme")
-                if preview_soylem and preview_eylem:
-                    if ctx.get("watchlist_recommended"):
-                        st.info(
-                            "⚠️ **İzleme modu** — haber/dataset eylem bulunamadı; "
-                            "analiz **Takibe Alınmalı** önerisi üretir."
-                        )
-                    else:
-                        st.success(
-                            f"✓ Hazır — söylem {len(preview_soylem):,} karakter, "
-                            f"eylem {len(preview_eylem):,} karakter"
-                        )
+                if ctx.get("watchlist_recommended") and preview_soylem:
+                    st.info(
+                        "📋 **İzleme modu** — bağımsız eylem kaynağı yok; "
+                        "sistem placeholder eylem doldurdu. Analiz **Takibe Alınmalı** üretir."
+                    )
+                elif preview_soylem and preview_eylem:
+                    st.success(
+                        f"✓ Hazır — söylem {len(preview_soylem):,} karakter, "
+                        f"eylem {len(preview_eylem):,} karakter"
+                    )
                 elif preview_soylem:
                     st.warning("Söylem bulundu; doğrulama kaynağı için KAYNAKLARI YENİLE deneyin.")
                 elif preview_eylem:
@@ -1372,7 +1429,8 @@ elif mode == "Canlı Doğrulama":
                 else:
                     st.warning("Kaynak bulunamadı — internet veya KAP erişimini kontrol edin.")
 
-            sync_live_text_inputs(bist_code, preview_eylem, preview_soylem)
+            force_sync = bool(ctx and preview_soylem)
+            sync_live_text_inputs(bist_code, preview_eylem, preview_soylem, force=force_sync)
 
             st.markdown('<div class="sq-card-label">SÖYLEM — otomatik (şirket iddiası)</div>', unsafe_allow_html=True)
             soylem = st.text_area(
@@ -1383,7 +1441,7 @@ elif mode == "Canlı Doğrulama":
             )
 
             if st.button("↻  KAYNAKLARI YENİLE", use_container_width=True, key=f"btn_fetch_{bist_code}"):
-                st.session_state.pop("_live_fetch_sig", None)
+                reset_live_fetch_state(bist_code)
                 st.rerun()
 
             st.markdown('<div class="sq-card-label" style="margin-top:12px">EYLEM — otomatik (doğrulama kaynağı)</div>', unsafe_allow_html=True)
@@ -1394,57 +1452,56 @@ elif mode == "Canlı Doğrulama":
                 key=f"live_eylem_{bist_code}",
             )
 
+            live_analysis_key = f"Canlı Doğrulama_{bist_code}"
+
             if st.button(
                 "▸  CANLI DOĞRULAMA ANALİZİ",
                 type="primary",
                 use_container_width=True,
                 key=f"btn_live_analyze_{bist_code}",
             ):
-                if not (soylem or "").strip():
-                    st.error("Söylem boş — KAYNAKLARI YENİLE ile tekrar deneyin.")
-                elif not (eylem or "").strip():
-                    st.error("Eylem boş — dataset şirketi seçin veya haber kaynağı bekleyin.")
-                else:
-                    try:
+                try:
+                    effective_soylem, effective_eylem, active_ctx = resolve_live_texts(
+                        live_record, soylem, eylem, ctx, include_kap, include_news,
+                    )
+                    if active_ctx:
+                        st.session_state.live_context = active_ctx
+                        sync_live_text_inputs(
+                            bist_code,
+                            effective_eylem,
+                            effective_soylem,
+                            force=True,
+                        )
+                    if not effective_soylem:
+                        st.error("Söylem boş — KAYNAKLARI YENİLE ile tekrar deneyin.")
+                    elif not effective_eylem:
+                        st.error("Eylem boş — KAYNAKLARI YENİLE ile tekrar deneyin.")
+                    else:
                         with st.spinner("KAP + haber + Say-Do Gap analizi…"):
                             analysis_record = {
                                 **live_record,
-                                "soylem": soylem,
-                                "eylem": eylem,
+                                "soylem": effective_soylem,
+                                "eylem": effective_eylem,
                                 "soylem_tarihi": soylem_tarihi,
                             }
-                            if ctx:
-                                analysis_record = build_enriched_record(
-                                    analysis_record, ctx, soylem_tarihi,
-                                )
-                            else:
-                                live = fetch_live_context(
-                                    company_name=live_record["sirket_adi"],
-                                    bist_code=live_record["bist_kodu"],
-                                    category=live_record["esg_kategorisi"],
-                                    dataset_soylem=live_record.get("soylem", ""),
-                                    dataset_eylem=live_record.get("eylem", ""),
-                                    include_kap=include_kap,
-                                    include_news=include_news,
-                                )
-                                analysis_record = build_enriched_record(
-                                    analysis_record, live, soylem_tarihi,
-                                )
+                            analysis_record = build_enriched_record(
+                                analysis_record, active_ctx or {}, soylem_tarihi,
+                            )
                             result = analyzer.analyze_record(analysis_record)
-                            active_ctx = ctx or st.session_state.get("live_context")
                             result = apply_watchlist_overlay(result, active_ctx)
                         st.session_state["analysis_result"] = result
-                        st.session_state["analysis_context"] = current_key
+                        st.session_state["analysis_context"] = live_analysis_key
                         st.toast(
                             f"Analiz tamamlandı — Risk: {result['risk_score']:.0f}/100",
                             icon="✅",
                         )
-                    except Exception as exc:
-                        st.error(f"Analiz hatası: {exc}")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"Analiz hatası: {exc}")
 
             if (
                 st.session_state.get("analysis_result")
-                and st.session_state.get("analysis_context") == current_key
+                and st.session_state.get("analysis_context") == live_analysis_key
             ):
                 st.markdown("---")
                 st.markdown(
