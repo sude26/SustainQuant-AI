@@ -25,7 +25,11 @@ if sys.platform == "win32":
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
+if sys.platform == "win32":
+    VENV_PYTHON = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+else:
+    VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
+
 
 
 def _use_project_venv():
@@ -101,7 +105,10 @@ def cmd_setup():
 
     if not VENV_PYTHON.exists():
         print("📦 Sanal ortam oluşturuluyor (.venv)...")
-        py = shutil.which("python3") or sys.executable
+        if sys.platform == "win32":
+            py = sys.executable
+        else:
+            py = shutil.which("python3") or sys.executable
         subprocess.run([py, "-m", "venv", str(PROJECT_ROOT / ".venv")], check=True)
 
     print("📥 Bağımlılıklar kuruluyor (birkaç dakika sürebilir)...")
@@ -163,7 +170,18 @@ def cmd_stop():
     import time
 
     print("🛑 Eski dashboard süreci kapatılıyor...")
-    subprocess.run(["pkill", "-f", "streamlit run app.py"], check=False)
+    if sys.platform == "win32":
+        try:
+            out = subprocess.check_output("netstat -ano", shell=True).decode()
+            for line in out.splitlines():
+                if f":{DASHBOARD_PORT}" in line and "LISTENING" in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    subprocess.run(f"taskkill /F /PID {pid}", shell=True, check=False)
+        except Exception:
+            pass
+    else:
+        subprocess.run(["pkill", "-f", "streamlit run app.py"], check=False)
     time.sleep(1)
     if _port_in_use(DASHBOARD_PORT):
         print(f"⚠️  Port {DASHBOARD_PORT} hâlâ dolu. Bilgisayarı yeniden başlatmayı deneyin.")
