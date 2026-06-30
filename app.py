@@ -1108,7 +1108,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 
-# Şirket değişince eski analiz sonucunu temizle (sadece bağlam değişince)
+# Şirket/mod değişince eski analiz sonucunu temizle
 if mode in ("Kayıtlı Şirket", "PDF Rapor Yükle", "Canlı Doğrulama") and selected_company:
     current_key = f"{mode}_{selected_company}"
 else:
@@ -1116,7 +1116,7 @@ else:
 _prev_ctx = st.session_state.get("analysis_context")
 if _prev_ctx != current_key:
     st.session_state.pop("analysis_result", None)
-    st.session_state["analysis_context"] = current_key
+st.session_state["analysis_context"] = current_key
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1358,35 +1358,62 @@ elif mode == "Canlı Doğrulama":
                 key=f"live_eylem_{bist_code}",
             )
 
-            if st.button("▸  CANLI DOĞRULAMA ANALİZİ", type="primary", use_container_width=True):
+            if st.button(
+                "▸  CANLI DOĞRULAMA ANALİZİ",
+                type="primary",
+                use_container_width=True,
+                key=f"btn_live_analyze_{bist_code}",
+            ):
                 if not (soylem or "").strip():
                     st.error("Söylem boş — KAYNAKLARI YENİLE ile tekrar deneyin.")
                 elif not (eylem or "").strip():
                     st.error("Eylem boş — dataset şirketi seçin veya haber kaynağı bekleyin.")
                 else:
-                    with st.spinner("KAP + haber + Say-Do Gap analizi…"):
-                        analysis_record = {
-                            **live_record,
-                            "soylem": soylem,
-                            "eylem": eylem,
-                            "soylem_tarihi": soylem_tarihi,
-                        }
-                        if ctx:
-                            analysis_record = build_enriched_record(analysis_record, ctx, soylem_tarihi)
-                        else:
-                            live = fetch_live_context(
-                                live_record["sirket_adi"], live_record["bist_kodu"],
-                                live_record["esg_kategorisi"],
-                                live_record.get("soylem", ""),
-                                live_record.get("eylem", ""),
-                                include_kap, include_news,
-                            )
-                            analysis_record = build_enriched_record(analysis_record, live, soylem_tarihi)
-                        result = analyzer.analyze_record(analysis_record)
-                    st.session_state["analysis_result"] = result
-                    st.session_state["analysis_context"] = current_key
-                    st.toast(f"Canlı analiz tamamlandı — Risk: {result['risk_score']:.0f}/100", icon="✅")
-                    st.rerun()
+                    try:
+                        with st.spinner("KAP + haber + Say-Do Gap analizi…"):
+                            analysis_record = {
+                                **live_record,
+                                "soylem": soylem,
+                                "eylem": eylem,
+                                "soylem_tarihi": soylem_tarihi,
+                            }
+                            if ctx:
+                                analysis_record = build_enriched_record(
+                                    analysis_record, ctx, soylem_tarihi,
+                                )
+                            else:
+                                live = fetch_live_context(
+                                    company_name=live_record["sirket_adi"],
+                                    bist_code=live_record["bist_kodu"],
+                                    category=live_record["esg_kategorisi"],
+                                    dataset_soylem=live_record.get("soylem", ""),
+                                    dataset_eylem=live_record.get("eylem", ""),
+                                    include_kap=include_kap,
+                                    include_news=include_news,
+                                )
+                                analysis_record = build_enriched_record(
+                                    analysis_record, live, soylem_tarihi,
+                                )
+                            result = analyzer.analyze_record(analysis_record)
+                        st.session_state["analysis_result"] = result
+                        st.session_state["analysis_context"] = current_key
+                        st.toast(
+                            f"Analiz tamamlandı — Risk: {result['risk_score']:.0f}/100",
+                            icon="✅",
+                        )
+                    except Exception as exc:
+                        st.error(f"Analiz hatası: {exc}")
+
+            if (
+                st.session_state.get("analysis_result")
+                and st.session_state.get("analysis_context") == current_key
+            ):
+                st.markdown("---")
+                st.markdown(
+                    '<div class="sq-card-label">ANALİZ SONUÇLARI</div>',
+                    unsafe_allow_html=True,
+                )
+                render_analysis_results(st.session_state["analysis_result"])
 
         with col2:
             render_watchlist_panel(watchlist_items, pending=watchlist_pending)
@@ -1403,10 +1430,6 @@ elif mode == "Canlı Doğrulama":
                 st.markdown(f"**Eşleşen haberler ({len(ctx['news'])})**")
                 for n in ctx["news"][:3]:
                     st.caption(f"• {n.get('title', '')[:80]}")
-
-    if st.session_state.get("analysis_result"):
-        st.markdown("---")
-        render_analysis_results(st.session_state["analysis_result"])
 
 # ──────────────────────────────────────────────────────────────
 # ANA İÇERİK — MOD 3: PDF RAPOR YÜKLE
