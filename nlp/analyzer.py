@@ -410,6 +410,7 @@ class GreenwashingAnalyzer:
             company_name=record["sirket_adi"],
             bist_code=record.get("bist_kodu", ""),
             category=record.get("esg_kategorisi", ""),
+            dataset_soylem=record.get("soylem", ""),
             dataset_eylem=record.get("eylem", ""),
             include_kap=include_kap,
             include_news=include_news,

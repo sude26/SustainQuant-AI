@@ -205,14 +205,15 @@ class KAPFetcher:
             "attachment_count": basic.get("attachmentCount", 0),
         }
 
-    def fetch_latest_esg_action(
+    def fetch_latest_esg_disclosure(
         self,
         bist_code: str,
         company_name: str = "",
         max_chars: int = 2500,
     ) -> Optional[dict]:
         """
-        Şirket için en güncel ESG bildirimini bulur ve eylem metni olarak döndürür.
+        Şirket için en güncel ESG / sürdürülebilirlik bildirimini döndürür.
+        Metin şirket iddiası (söylem) olarak kullanılır.
         """
         disclosures = self.find_esg_disclosures(bist_code)
         if not disclosures:
@@ -244,6 +245,10 @@ class KAPFetcher:
             "source_url": detail.get("source_url"),
             "trusted": True,
         }
+
+    def fetch_latest_esg_action(self, bist_code: str, company_name: str = "", max_chars: int = 2500):
+        """Geriye uyumluluk."""
+        return self.fetch_latest_esg_disclosure(bist_code, company_name, max_chars)
 
 
 _default_fetcher: KAPFetcher | None = None
