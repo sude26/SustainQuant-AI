@@ -600,6 +600,114 @@ def render_timeline_panel(timeline: dict):
             st.caption(timeline.get("description", ""))
 
 
+def render_evidence_panel(result: dict):
+    """Kanıt zinciri — kaynak, URL, tarih (Tier 1)."""
+    evidence = result.get("evidence") or []
+    if not evidence and result.get("source"):
+        evidence = [{
+            "source": result.get("source", ""),
+            "url": result.get("kaynak_url", ""),
+            "type": "dataset",
+            "date": result.get("eylem_tarihi", ""),
+        }]
+    if not evidence:
+        return
+
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin:16px 0 10px">KANIT ZİNCİRİ</p>',
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        for ev in evidence[:6]:
+            src = ev.get("source", "Kaynak")
+            url = ev.get("url", "")
+            date = ev.get("date", "")
+            typ = ev.get("type", "")
+            line = f"**{src}**"
+            if typ:
+                line += f" · `{typ}`"
+            if date:
+                line += f" · {date}"
+            st.markdown(line)
+            if url:
+                st.markdown(f"[Kaynağı aç]({url})")
+
+
+def render_entity_panel(entity_gap: dict):
+    """Sayısal entity karşılaştırma paneli."""
+    if not entity_gap:
+        return
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin:16px 0 10px">SAYISAL İDDİA ANALİZİ (Mini-NER)</p>',
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        st.caption(entity_gap.get("summary", ""))
+        if entity_gap.get("conflicts"):
+            for c in entity_gap["conflicts"]:
+                icon = "🔴" if c.get("severity") == "high" else "🟠"
+                st.markdown(f"{icon} **{c.get('title', '')}**")
+                st.caption(c.get("description", ""))
+        sm, em = st.columns(2)
+        with sm:
+            st.markdown("**Söylem metrikleri**")
+            for m in entity_gap.get("soylem_metrics", [])[:4]:
+                st.caption(f"• {m.get('raw', '')}")
+        with em:
+            st.markdown("**Eylem metrikleri**")
+            for m in entity_gap.get("eylem_metrics", [])[:4]:
+                st.caption(f"• {m.get('raw', '')}")
+
+
+def render_hitl_panel(result: dict):
+    """Human-in-the-loop analist onayı."""
+    key = f"hitl_{result.get('company_name')}_{result.get('category')}"
+    st.markdown(
+        '<p style="font-family:IBM Plex Mono,monospace;font-size:10px;'
+        'letter-spacing:.16em;color:#5C7185;margin:16px 0 10px">HUMAN-IN-THE-LOOP</p>',
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        st.caption("Nihai karar analist onayına tabidir (rapor §6 risk önlemi).")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅  Analist Onayı", key=f"approve_{key}", use_container_width=True):
+                st.session_state[key] = "approved"
+        with c2:
+            if st.button("⚠️  İnceleme Gerekli", key=f"reject_{key}", use_container_width=True):
+                st.session_state[key] = "review"
+        status = st.session_state.get(key)
+        if status == "approved":
+            st.success("Onaylandı — rapor portföye alınabilir.")
+        elif status == "review":
+            st.warning("Manuel inceleme kuyruğuna alındı.")
+
+
+def render_methodology_info():
+    """Skor hesaplama metodolojisi."""
+    with st.expander("📐 Metodoloji — Skor Nasıl Hesaplanır?"):
+        st.markdown("""
+        **Say-Do Gap Risk Skoru (0–100)**
+
+        1. **Anlamsal benzerlik** (kosinüs, %65 ağırlık)  
+           Söylem ile eylem vektörleri karşılaştırılır. Düşük benzerlik = yüksek risk.
+
+        2. **Duygu boşluğu** (%35 ağırlık)  
+           Söylemin eylemden ne kadar daha iyimser olduğu ölçülür.
+
+        3. **Entity analizi** (mini-NER)  
+           Emisyon %, MW, ton gibi sayısal iddialar çıkarılır; yönsel çelişkiler işaretlenir.
+
+        4. **Çoklu kaynak teyidi**  
+           2+ bağımsız whitelist kaynağı güven skorunu artırır.
+
+        **Anomali sınıfları:** Tam Uyum (0–25) · Kapsam Uyuşmazlığı (26–50) ·  
+        Doğrudan Çelişki (51–75) · Veri Yetersizliği (76–100)
+        """)
+
+
 def render_analysis_results(result: dict):
     """B2B terminal sonuç paneli — gerçek NLP çıktısı."""
     risk_skoru = result["risk_score"]
@@ -609,6 +717,7 @@ def render_analysis_results(result: dict):
     anomaliler = derive_anomalies(result)
     ticker = result.get("bist_code") or "—"
     sirket_adi = result["company_name"]
+    mode_label = getattr(analyzer.nlp, "mode_label", "SQ-Detect")
 
     render_html(f"""
     <div style="background:#0E1C2E;border:1px solid #1B2E44;border-radius:12px;
@@ -620,7 +729,7 @@ def render_analysis_results(result: dict):
           <span style="font-size:17px;font-weight:600;color:#E8EEF4">{sirket_adi}</span>
         </div>
         <div style="font-size:12px;color:#5C7185;margin-top:6px">
-          {result['category']} · Say-Do Gap · SQ-Detect Lite
+          {result['category']} · Say-Do Gap · {mode_label}
         </div>
       </div>
       <div class="sq-band {band_class}">
@@ -718,6 +827,10 @@ def render_analysis_results(result: dict):
             render_verification_panel(result.get("verification"))
         with tcol:
             render_timeline_panel(result.get("timeline"))
+
+    render_evidence_panel(result)
+    render_entity_panel(result.get("entity_gap"))
+    render_hitl_panel(result)
 
     if result.get("live_sources"):
         with st.expander(f"Canlı Kaynaklar ({len(result['live_sources'])})"):
@@ -880,6 +993,7 @@ with st.sidebar:
     )
 
     render_alerts_sidebar()
+    render_methodology_info()
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f"""
@@ -1268,9 +1382,10 @@ elif mode == "Jüri Demo":
 # ──────────────────────────────────────────────────────────────
 
 st.markdown("<br>", unsafe_allow_html=True)
-st.markdown("""
+_engine_footer = "SQ-Detect Lite" if NLP_MODE == "lightweight" else "FinBERT Full"
+st.markdown(f"""
 <div style="text-align:center;color:#5C7185;font-size:11px;padding:16px 0;border-top:1px solid #16273B">
   <b style="color:#8AA0B4">SustainaQuant AI</b> · Teknofest Finansal Teknolojiler 2026 · Takım ID: 918431<br>
-  <span style="color:#14E08A">FinBERT + BERTürk + Kosinüs Benzerliği · Say-Do Gap Algoritması</span>
+  <span style="color:#14E08A">Say-Do Gap · Kosinüs Benzerliği · {_engine_footer}</span>
 </div>
 """, unsafe_allow_html=True)

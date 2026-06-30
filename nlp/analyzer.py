@@ -25,6 +25,7 @@ from config import (
 from nlp.models import SustainaQuantNLP, create_nlp_engine
 from nlp.similarity import CosineSimilarityEngine
 from nlp.sentiment import SentimentAnalyzer
+from nlp.entity_extract import analyze_entity_gap
 from data.esg_dataset import get_esg_dataset
 
 
@@ -224,6 +225,15 @@ class GreenwashingAnalyzer:
                 "severity": "med",
             })
 
+        entity_gap = record.get("entity_gap")
+        if entity_gap and entity_gap.get("has_conflict"):
+            for c in entity_gap.get("conflicts", []):
+                anomalies.append({
+                    "title": c.get("title", "Sayısal Çelişki"),
+                    "description": c.get("description", ""),
+                    "severity": c.get("severity", "med"),
+                })
+
         return anomalies
 
     def calculate_say_do_gap(self, soylem: str, eylem: str) -> dict:
@@ -314,7 +324,9 @@ class GreenwashingAnalyzer:
         )
 
         esg_breakdown = self.generate_esg_breakdown(gap_result, record)
-        anomalies = self.generate_anomalies(gap_result, record, summary, trigger)
+        entity_gap = analyze_entity_gap(soylem, eylem)
+        record_enriched = {**record, "entity_gap": entity_gap}
+        anomalies = self.generate_anomalies(gap_result, record_enriched, summary, trigger)
 
         # Master System Prompt formatında rapor
         formatted_report = REPORT_TEMPLATE.format(
@@ -348,7 +360,40 @@ class GreenwashingAnalyzer:
             "live_sources": record.get("sources", []),
             "live_kap": record.get("live_kap"),
             "live_news": record.get("live_news", []),
+            "entity_gap": entity_gap,
+            "evidence": self._build_evidence(record),
+            "kaynak": record.get("kaynak", ""),
+            "kaynak_url": record.get("kaynak_url", ""),
+            "eylem_tarihi": record.get("eylem_tarihi", ""),
+            "soylem_tarihi": record.get("soylem_tarihi", ""),
         }
+
+    def _build_evidence(self, record: dict) -> list[dict]:
+        """Kanıt zinciri: kaynak, URL, tarih."""
+        items = []
+        if record.get("kaynak"):
+            items.append({
+                "source": record["kaynak"],
+                "url": record.get("kaynak_url", ""),
+                "type": "resmi_kurum",
+                "date": record.get("eylem_tarihi", ""),
+            })
+        for src in record.get("sources", []):
+            items.append({
+                "source": src.get("source", ""),
+                "url": src.get("source_url", ""),
+                "type": src.get("type", ""),
+                "date": src.get("publish_date", ""),
+            })
+        kap = record.get("live_kap")
+        if kap and kap.get("source_url"):
+            items.append({
+                "source": "KAP",
+                "url": kap["source_url"],
+                "type": "kap",
+                "date": kap.get("publish_date", ""),
+            })
+        return items
 
     def analyze_live(
         self,
