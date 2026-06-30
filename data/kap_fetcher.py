@@ -53,6 +53,35 @@ def _parse_kap_date(value: str) -> Optional[datetime]:
     return None
 
 
+def clean_kap_action_text(text: str, max_chars: int = 2500) -> str:
+    """KAP XBRL/şablon gürültüsünü temizleyip okunabilir eylem metni üretir."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"\[[^\]]*\]", " ", text)
+    cleaned = re.sub(r"oda_[\w|]+", " ", cleaned)
+    cleaned = re.sub(r"http\S+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    keywords = (
+        "sürdürülebilir", "emisyon", "karbon", "enerji", "iklim", "çevre",
+        "yönetim", "hedef", "risk", "thy", "havayolu", "taahhüt",
+    )
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    picked = []
+    for sentence in sentences:
+        s = sentence.strip()
+        if len(s) < 45:
+            continue
+        ascii_ratio = sum(1 for c in s if ord(c) < 128) / max(len(s), 1)
+        if ascii_ratio > 0.92:
+            continue
+        if any(k in s.lower() for k in keywords):
+            picked.append(s)
+    if picked:
+        return " ".join(picked)[:max_chars]
+    return cleaned[:max_chars]
+
+
 class KAPFetcher:
     """KAP kamuya açık API istemcisi."""
 
@@ -193,12 +222,14 @@ class KAPFetcher:
 
         best = disclosures[0]
         detail = self.get_disclosure_detail(best["disclosureIndex"])
+        summary = best.get("summary") or best.get("subject") or ""
         if not detail.get("text"):
-            summary = best.get("summary") or best.get("subject") or ""
             detail["text"] = summary
             detail["text_preview"] = summary
 
-        text = detail["text"][:max_chars]
+        text = clean_kap_action_text(detail.get("text") or summary)[:max_chars]
+        if not text and summary:
+            text = clean_kap_action_text(summary)[:max_chars]
         publish = detail.get("publish_date") or best.get("publishDate", "")
 
         return {

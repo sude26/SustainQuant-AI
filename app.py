@@ -343,6 +343,25 @@ def sync_text_inputs(ctx_key: str, soylem: str, eylem: str):
         st.session_state["sq_eylem"] = eylem
 
 
+def get_record_by_bist(bist_code: str) -> dict | None:
+    """BIST koduna göre dataset kaydı."""
+    code = (bist_code or "").upper()
+    for record in get_esg_dataset():
+        if record.get("bist_kodu", "").upper() == code:
+            return record
+    return None
+
+
+def sync_live_text_inputs(bist: str, eylem: str, soylem: str | None = None):
+    """Canlı doğrulama metin kutularını session state ile günceller."""
+    ctx_key = f"live_{bist}_{len(eylem)}_{len(soylem or '')}"
+    if st.session_state.get("_live_text_ctx") != ctx_key:
+        st.session_state["_live_text_ctx"] = ctx_key
+        st.session_state[f"live_eylem_{bist}"] = eylem
+        if soylem is not None and soylem.strip():
+            st.session_state[f"live_soylem_{bist}"] = soylem
+
+
 def sync_pdf_inputs(file_ctx: str | None, company_ctx: str, soylem: str | None, eylem: str):
     """PDF modunda söylem/eylem alanlarını session state ile senkronize eder."""
     if file_ctx and st.session_state.get("_pdf_file_ctx") != file_ctx:
@@ -1225,26 +1244,35 @@ elif mode == "Canlı Doğrulama":
 
     live_record = record
     if free_bist:
-        try:
-            from data.kap_fetcher import get_kap_fetcher
-            kap_meta = get_kap_fetcher().get_company(free_bist)
-            if kap_meta:
-                live_record = {
-                    "sirket_adi": kap_meta.get("companyName") or free_bist,
-                    "bist_kodu": free_bist,
-                    "esg_kategorisi": "Genel ESG (KAP)",
-                    "soylem": "",
-                    "eylem": "",
-                    "kaynak": "KAP",
-                    "kaynak_tipi": "Canlı",
-                }
-                st.success(f"KAP eşleşmesi: **{live_record['sirket_adi']}** ({free_bist})")
-            else:
-                st.error(f"'{free_bist}' KAP şirket listesinde bulunamadı.")
+        dataset_match = get_record_by_bist(free_bist)
+        if dataset_match:
+            live_record = dataset_match
+            st.success(
+                f"Dataset eşleşmesi: **{live_record['sirket_adi']}** ({free_bist}) — "
+                "söylem/eylem hazır, KAP ile zenginleştirilebilir."
+            )
+        else:
+            try:
+                from data.kap_fetcher import get_kap_fetcher
+                kap_meta = get_kap_fetcher().get_company(free_bist)
+                if kap_meta:
+                    live_record = {
+                        "sirket_adi": kap_meta.get("kapMemberTitle") or free_bist,
+                        "bist_kodu": free_bist,
+                        "esg_kategorisi": "Genel ESG (KAP)",
+                        "soylem": "",
+                        "eylem": "",
+                        "kaynak": "KAP",
+                        "kaynak_tipi": "Canlı",
+                    }
+                    st.success(f"KAP eşleşmesi: **{live_record['sirket_adi']}** ({free_bist})")
+                    st.info("Bu şirket dataset'te yok — söylemi manuel yapıştırmanız gerekir.")
+                else:
+                    st.error(f"'{free_bist}' KAP şirket listesinde bulunamadı.")
+                    live_record = None
+            except Exception as exc:
+                st.error(f"KAP bağlantı hatası: {exc}")
                 live_record = None
-        except Exception as exc:
-            st.error(f"KAP bağlantı hatası: {exc}")
-            live_record = None
 
     if not live_record:
         st.warning("Sidebar'dan şirket seçin veya yukarıya BIST kodu yazın.")
@@ -1266,18 +1294,24 @@ elif mode == "Canlı Doğrulama":
 
             soylem_tarihi = st.text_input("Söylem tarihi", value="2025-01-01", help="YYYY-MM-DD")
 
+            bist_code = live_record["bist_kodu"]
+            if f"live_soylem_{bist_code}" not in st.session_state:
+                st.session_state[f"live_soylem_{bist_code}"] = live_record.get("soylem") or ""
+            if f"live_eylem_{bist_code}" not in st.session_state:
+                st.session_state[f"live_eylem_{bist_code}"] = live_record.get("eylem") or ""
+
             soylem = st.text_area(
-                "Söylem", value=live_record.get("soylem") or "", height=120,
-                placeholder="Şirketin ESG iddiasını yapıştırın (KAP-only modda zorunlu)…",
+                "Söylem", height=120,
+                placeholder="Şirketin ESG iddiası — dataset şirketlerinde otomatik dolar…",
                 label_visibility="collapsed",
-                key=f"live_soylem_{live_record['bist_kodu']}",
+                key=f"live_soylem_{bist_code}",
             )
 
-            if st.button("↻  KAYNAKLARI ÇEK", use_container_width=True):
+            if st.button("↻  KAYNAKLARI ÇEK", use_container_width=True, key=f"btn_fetch_{bist_code}"):
                 with st.spinner("KAP ve haber kaynakları taranıyor…"):
                     st.session_state.live_context = fetch_live_context(
                         company_name=live_record["sirket_adi"],
-                        bist_code=live_record["bist_kodu"],
+                        bist_code=bist_code,
                         category=live_record["esg_kategorisi"],
                         dataset_eylem=live_record.get("eylem", ""),
                         include_kap=include_kap,
@@ -1289,13 +1323,30 @@ elif mode == "Canlı Doğrulama":
             preview_eylem = live_record.get("eylem") or ""
             if ctx:
                 preview_eylem = ctx.get("merged_eylem") or preview_eylem
-                if ctx.get("kap") and ctx["kap"].get("error"):
-                    st.warning(f"KAP: {ctx['kap']['error']}")
+                kap = ctx.get("kap")
+                if kap and kap.get("error"):
+                    st.warning(f"KAP hatası: {kap['error']}")
+                elif kap and kap.get("eylem_text"):
+                    st.caption(
+                        f"KAP: {kap.get('subject', 'Bildirim')} · {kap.get('publish_date', '')}"
+                    )
+                news = ctx.get("news") or []
+                if news:
+                    st.caption(f"Haber: {len(news)} eşleşme bulundu")
+                if preview_eylem:
+                    st.success(f"✓ Eylem metni hazır — {len(preview_eylem):,} karakter")
+                else:
+                    st.warning(
+                        "Kaynak metni boş. Dataset şirketi seçin (ör. THYAO sidebar) "
+                        "veya KAP bildirimi bulunamadı."
+                    )
+
+            sync_live_text_inputs(bist_code, preview_eylem)
 
             st.markdown('<div class="sq-card-label" style="margin-top:12px">EYLEM — birleşik kaynak metni</div>', unsafe_allow_html=True)
             eylem = st.text_area(
-                "", value=preview_eylem, height=140, label_visibility="collapsed",
-                key=f"live_eylem_{live_record['bist_kodu']}",
+                "", height=140, label_visibility="collapsed",
+                key=f"live_eylem_{bist_code}",
             )
 
             if st.button("▸  CANLI DOĞRULAMA ANALİZİ", type="primary", use_container_width=True):
